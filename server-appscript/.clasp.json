@@ -1,0 +1,60 @@
+{
+  "scriptId": "13NqOMHattlcapupe4MIo0IHvRIQeKrw1cyTCw-KmhxPuupQ3iJ8thCiV",
+  "rootDir": "",
+  "scriptExtensions": [
+    ".js",
+    ".gs"
+  ],
+  "htmlExtensions": [
+    ".html"
+  ],
+  "jsonExtensions": [
+    ".json"
+  ],
+  "filePushOrder": [
+
+    "backend/write/ValueOperation.js",
+
+    "backend/compiler/CompiledValueOperation.js",
+    "backend/compiler/CompiledSetValue.js",
+    "backend/compiler/CompiledInsertRow.js",
+    "backend/compiler/CompiledAppendValue.js",
+    "backend/compiler/CompiledPrependValue.js",
+
+    "backend/execution/predicate/Predicate.js",
+    "backend/execution/predicate/UnaryPredicate.js",
+    "backend/execution/predicate/BinaryPredicate.js",
+    "backend/execution/predicate/MultiValuePredicate.js",
+
+    "backend/execution/predicate/EqualsPredicate.js",
+    "backend/execution/predicate/NotEqualsPredicate.js",
+    "backend/execution/predicate/GreaterThanPredicate.js",
+    "backend/execution/predicate/GreaterThanEqualsPredicate.js",
+    "backend/execution/predicate/LessThanPredicate.js",
+    "backend/execution/predicate/LessThanEqualsPredicate.js",
+    "backend/execution/predicate/ContainsPredicate.js",
+    "backend/execution/predicate/StartsWithPredicate.js",
+    "backend/execution/predicate/EndsWithPredicate.js",
+    "backend/execution/predicate/BetweenPredicate.js",
+    "backend/execution/predicate/InPredicate.js",
+    "backend/execution/predicate/IsNullPredicate.js",
+    "backend/execution/predicate/IsNotNullPredicate.js",
+
+    "backend/execution/predicate/compiled/CompiledPredicate.js",
+
+    "backend/execution/predicate/compiled/CompiledEqualsPredicate.js",
+    "backend/execution/predicate/compiled/CompiledNotEqualsPredicate.js",
+    "backend/execution/predicate/compiled/CompiledGreaterThanPredicate.js",
+    "backend/execution/predicate/compiled/CompiledGreaterThanEqualsPredicate.js",
+    "backend/execution/predicate/compiled/CompiledLessThanPredicate.js",
+    "backend/execution/predicate/compiled/CompiledLessThanEqualsPredicate.js",
+    "backend/execution/predicate/compiled/CompiledContainsPredicate.js",
+    "backend/execution/predicate/compiled/CompiledStartsWithPredicate.js",
+    "backend/execution/predicate/compiled/CompiledEndsWithPredicate.js",
+    "backend/execution/predicate/compiled/CompiledBetweenPredicate.js",
+    "backend/execution/predicate/compiled/CompiledInPredicate.js",
+    "backend/execution/predicate/compiled/CompiledIsNullPredicate.js",
+    "backend/execution/predicate/compiled/CompiledIsNotNullPredicate.js"
+  ],
+  "skipSubdirectories": false
+}

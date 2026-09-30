@@ -1,0 +1,75 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A Java 17 Maven library (`io.github.prasunmondal:hibernate-sheets-client`) that is a typed client for
+the **hibernate.sheets** Google Apps Script engine (Google Sheets used as a database). The engine
+itself (the `appscript/` JS sources) lives in a separate repo; this repo only contains the SDK.
+Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-datatype-jsr310`;
+HTTP uses the JDK `java.net.http.HttpClient`.
+
+## Commands
+
+```bash
+mvn test                              # unit tests (no network)
+mvn test -Dtest=RequestContractTest   # one test class
+mvn test -Dtest=RequestContractTest#someMethod
+mvn package                           # jar + sources jar
+mvn install                           # into ~/.m2 for consuming projects
+```
+
+### Integration tests (`src/test/java/.../integrationTests/*IT.java`)
+
+- There is **no failsafe plugin** in `pom.xml`, so `*IT` classes are not run by `mvn test` or
+  `mvn verify` (despite what the `ItConfig` Javadoc says). Run them explicitly:
+  `mvn test -Dtest=InsertIT` (or `-Dtest='*IT'`).
+- They hit a **live** Apps Script deployment and spreadsheet by default (see `ItConfig`). Override with
+  `-Dhs.endpoint=... -Dhs.spreadsheetId=... -Dhs.timeZone=...` or env vars
+  `HS_ENDPOINT` / `HS_SPREADSHEET_ID` / `HS_TIME_ZONE`.
+- They only touch worksheets prefixed `IT_`; `TestData.resetAll()` reseeds `IT_Employees` /
+  `IT_Departments` before each test. `SchemaOperationsIT` leaves an `IT_Created_<timestamp>` sheet
+  behind each run (the engine cannot delete worksheets).
+- Local emulator: `node src/test/emulator/engine-emulator.js <path-to-appscript-dir> [port]` runs the
+  real engine source in Node with in-memory Sheets; point tests at
+  `-Dhs.endpoint=http://127.0.0.1:8765/macros/s/LOCAL/exec`. Needs the engine repo checked out.
+- `integrationTests/Test1.java` matches surefire's default `Test*` include pattern, so it **does**
+  run under plain `mvn test` and makes a live network call.
+
+`KnownEngineIssuesIT` asserts the *buggy* engine behaviour on purpose (see "Engine issues" in
+README.md). When an engine bug is fixed, the matching test fails; flip it to the "After the fix"
+assertion in its comment and move it to the regular suite.
+
+## Architecture
+
+Request pipeline (nothing is sent until `execute()` / `fetch()`):
+
+1. **Fluent API** — `Worksheet` (from `HibernateSheets.worksheet(name)`) and `mapping.Repository<T>`
+   (from `db.repository(Entity.class)`, driven by `@SheetTable` / `@SheetKey` + Jackson property names).
+2. **Specs** (`spec/*Spec`) — builders that each produce one immutable `spec.Operation` record, the
+   transport-neutral description of an engine op. `UPDATE`/`DELETE` require `where(...)` unless `all()`.
+3. **`internal.RequestSerializer`** — encodes operations into the exact JSON contract of the engine's
+   `RequestParser.js`. `RequestContractTest` pins this contract; change both together.
+4. **`HibernateSheets.execute(List<Operation>)`** — one HTTP request per call/batch, applies
+   `RetryPolicy` (retries only read-only requests — SELECT / GET_COLUMNS — unless
+   `retryingWrites(true)`; never retries daily-quota errors).
+5. **`transport.Transport`** (single method; `HttpTransport` default) — POSTs to `/exec`, follows the
+   Apps Script 302 to `script.googleusercontent.com` with a GET, and does not forward `Authorization`
+   across hosts. Tests stub it with `FakeTransport`.
+6. **`internal.ResponseParser`** — maps success to `result.*` types; `success:false` →
+   `ServerException`; an HTML page instead of JSON → `TransportException`.
+
+`Batch` groups several specs into one request and hands back `Ref<T>` handles resolved after
+`batch.execute()`. Engine semantics: row ops commit together at the end (all-or-nothing for row
+changes), later ops see earlier ones, but `create` / `addColumns` / `clear` hit the sheet immediately.
+
+### Value conversion (`internal.JsCompat`) — easy to break
+
+The engine compares filters in JavaScript, so the SDK shapes values accordingly:
+- `eq`/`ne`/`contains`/`startsWith`/`endsWith` → value sent as JS `String(value)` text (`5.0` → `"5"`);
+  this also works around the engine bug where numeric EQUALS never matches.
+- `gt`/`gte`/`lt`/`lte`/`between` → numbers as-is; `java.time` values as epoch millis.
+- `in` → raw JSON values. `eq(col, null)` / `ne(col, null)` → `isNull` / `isNotNull`.
+- Reading: empty cells arrive as `""` (typed getters/entity mapping → `null`); dates arrive as UTC
+  instants and are converted to `LocalDate`/`LocalDateTime` using the client's configured `timeZone`.
