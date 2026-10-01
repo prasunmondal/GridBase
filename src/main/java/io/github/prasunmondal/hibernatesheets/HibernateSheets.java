@@ -32,6 +32,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -58,6 +62,12 @@ public final class HibernateSheets {
 
     private static final System.Logger LOG = System.getLogger(HibernateSheets.class.getName());
 
+    private static final ExecutorService ASYNC = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "hibernate-sheets-async");
+        t.setDaemon(true);
+        return t;
+    });
+
     private final Transport transport;
     private final ObjectMapper mapper;
     private final ZoneId zone;
@@ -71,6 +81,7 @@ public final class HibernateSheets {
     private final CacheStrategy cacheStrategy;
     private final CacheExpiry cacheExpiry;
     private final Clock clock;
+    private final RequestQueue queue;
 
     private HibernateSheets(Builder b) {
         this.zone = b.zone;
@@ -97,6 +108,8 @@ public final class HibernateSheets {
                     .accessToken(b.accessToken)
                     .build();
         }
+        this.queue = b.queueWindow == null ? null
+                : new RequestQueue(b.queueWindow, b.queueMaxOperations, this::remote, this::slice, ASYNC);
     }
 
     public static Builder builder() {
@@ -130,27 +143,20 @@ public final class HibernateSheets {
      * read-only requests go through it and writes invalidate the worksheets they touch.
      */
     public ExecutionResponse execute(List<Operation> operations) {
-        Objects.requireNonNull(operations, "operations");
-        if (operations.isEmpty()) {
-            throw new IllegalArgumentException("At least one operation is required");
-        }
-        boolean readOnly = operations.stream().allMatch(op -> op.type().isReadOnly());
-        if (cache == null) {
-            return remote(operations, readOnly).parsed();
-        }
-        if (readOnly) {
-            return executeCached(operations);
-        }
-        try {
-            return remote(operations, false).parsed();
-        } finally {
-            // Also on failure: a timed-out write may still have been committed by the engine.
-            operations.stream()
-                    .filter(op -> !op.type().isReadOnly())
-                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet()))
-                    .distinct()
-                    .forEach(s -> quietly("invalidate", () -> cache.invalidate(s.spreadsheetId(), s.worksheet())));
-        }
+        return await(submit(operations, false));
+    }
+
+    /**
+     * Like {@link #execute} but returns immediately. With a request queue configured, requests made
+     * close together (from any thread) are sent as one HTTP call; callbacks run on a pool thread.
+     */
+    public CompletableFuture<ExecutionResponse> executeAsync(List<Operation> operations) {
+        return submit(operations, true);
+    }
+
+    /** Executes one operation asynchronously; see {@link #executeAsync}. */
+    public <R extends OperationResult> CompletableFuture<R> executeOneAsync(Operation operation, Class<R> resultType) {
+        return executeAsync(List.of(operation)).thenApply(r -> resultType.cast(r.results().get(0)));
     }
 
     /** The response cache, if one is configured. */
@@ -158,32 +164,104 @@ public final class HibernateSheets {
         return Optional.ofNullable(cache);
     }
 
-    private ExecutionResponse executeCached(List<Operation> operations) {
+    private CompletableFuture<ExecutionResponse> submit(List<Operation> operations, boolean async) {
+        Objects.requireNonNull(operations, "operations");
+        if (operations.isEmpty()) {
+            throw new IllegalArgumentException("At least one operation is required");
+        }
+        List<Operation> ops = List.copyOf(operations);
+        boolean readOnly = ops.stream().allMatch(op -> op.type().isReadOnly());
+        if (cache == null) {
+            return fetch(ops, readOnly, async).thenApply(Reply::parsed);
+        }
+        if (readOnly) {
+            return executeCached(ops, async);
+        }
+        return fetch(ops, false, async)
+                // Also on failure: a timed-out write may still have been committed by the engine.
+                .whenComplete((reply, failure) -> ops.stream()
+                        .filter(op -> !op.type().isReadOnly())
+                        .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet()))
+                        .distinct()
+                        .forEach(s -> quietly("invalidate", () -> cache.invalidate(s.spreadsheetId(), s.worksheet()))))
+                .thenApply(Reply::parsed);
+    }
+
+    /** Through the queue when there is one; otherwise on the caller's thread (sync) or a pool thread (async). */
+    private CompletableFuture<Reply> fetch(List<Operation> operations, boolean readOnly, boolean async) {
+        if (queue != null && queue.accepts(operations)) {
+            return queue.submit(operations, readOnly);
+        }
+        if (async) {
+            return CompletableFuture.supplyAsync(() -> remote(operations, readOnly), ASYNC);
+        }
+        return now(() -> remote(operations, readOnly));
+    }
+
+    private CompletableFuture<ExecutionResponse> executeCached(List<Operation> operations, boolean async) {
         String key = cacheKey(operations);
         Optional<SqliteResponseCache.Entry> read = quietly("read", () -> cache.get(key));
         Optional<SqliteResponseCache.Entry> cached = read != null ? read : Optional.empty();
         if (cacheStrategy == CacheStrategy.CACHE_FIRST && cached.isPresent() && cached.get().isFresh(clock.instant())) {
             LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
-            return parser.parse(cached.get().reply(), operations);
+            return now(() -> parser.parse(cached.get().reply(), operations));
         }
-        try {
-            Reply reply = remote(operations, true);
-            Instant cachedAt = clock.instant();
-            List<SheetRef> sheets = operations.stream()
-                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().toList();
-            quietly("write", () -> {
-                cache.put(key, reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
-                return null;
-            });
-            return reply.parsed();
-        } catch (HibernateSheetsException e) {
-            boolean networkFailure = e instanceof TransportException || e.isRetryable();
+        return fetch(operations, true, async).handle((reply, failure) -> {
+            if (failure == null) {
+                Instant cachedAt = clock.instant();
+                List<SheetRef> sheets = operations.stream()
+                        .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().toList();
+                quietly("write", () -> {
+                    cache.put(key, reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
+                    return null;
+                });
+                return reply.parsed();
+            }
+            Throwable cause = unwrap(failure);
+            boolean networkFailure = cause instanceof TransportException
+                    || (cause instanceof HibernateSheetsException e && e.isRetryable());
             if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && cached.isPresent()) {
                 LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request failed, serving cached reply from "
-                        + cached.get().cachedAt() + ": " + e.getMessage());
+                        + cached.get().cachedAt() + ": " + cause.getMessage());
                 return parser.parse(cached.get().reply(), operations);
             }
-            throw e;
+            throw cause instanceof RuntimeException r ? r : new CompletionException(cause);
+        });
+    }
+
+    private Reply slice(Reply combined, int offset, List<Operation> operations) {
+        String body = parser.slice(combined.body(), offset, operations.size());
+        return new Reply(body, parser.parse(body, operations));
+    }
+
+    private static <T> CompletableFuture<T> now(Supplier<T> work) {
+        try {
+            return CompletableFuture.completedFuture(work.get());
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private static Throwable unwrap(Throwable t) {
+        while (t instanceof CompletionException && t.getCause() != null) {
+            t = t.getCause();
+        }
+        return t;
+    }
+
+    /** Waits and rethrows the original exception (e.g. {@code ServerException}), not a wrapper. */
+    private static <T> T await(CompletableFuture<T> future) {
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            Throwable cause = unwrap(e);
+            if (cause instanceof RuntimeException r) {
+                throw r;
+            }
+            if (cause instanceof Error err) {
+                throw err;
+            }
+            throw new HibernateSheetsException(String.valueOf(cause.getMessage()), cause, false);
         }
     }
 
@@ -207,7 +285,7 @@ public final class HibernateSheets {
         }
     }
 
-    private record Reply(String body, ExecutionResponse parsed) {
+    record Reply(String body, ExecutionResponse parsed) {
     }
 
     private Reply remote(List<Operation> operations, boolean readOnly) {
@@ -298,8 +376,20 @@ public final class HibernateSheets {
         private CacheStrategy cacheStrategy;
         private CacheExpiry cacheExpiry;
         private Clock clock = Clock.systemUTC();
+        private Duration queueWindow;
+        private int queueMaxOperations;
 
         private Builder() {
+        }
+
+        /**
+         * Queue requests for up to {@code window} and send everything queued as one HTTP call (at most
+         * {@code maxOperations} operations per call). Off by default.
+         */
+        public Builder requestQueue(Duration window, int maxOperations) {
+            this.queueWindow = Objects.requireNonNull(window, "window");
+            this.queueMaxOperations = maxOperations;
+            return this;
         }
 
         /** Cache read-only requests in {@code cache}; writes through this client invalidate affected worksheets. */

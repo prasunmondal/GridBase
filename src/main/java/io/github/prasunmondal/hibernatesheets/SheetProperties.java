@@ -64,8 +64,28 @@ public final class SheetProperties {
     private final CacheStrategy cacheStrategy;
     private final CacheExpiry cacheExpiry;
     private final Path cacheFile;
+    private final Duration queueWindow;
+    private final int queueMaxOperations;
 
-    private volatile HibernateSheets client;
+    private final ClientHolder clientHolder;
+
+    /** Lazily built client, shared by properties that differ only in {@code tabName}. */
+    private static final class ClientHolder {
+        private volatile HibernateSheets client;
+
+        HibernateSheets get(Supplier<HibernateSheets> factory) {
+            HibernateSheets c = client;
+            if (c == null) {
+                synchronized (this) {
+                    c = client;
+                    if (c == null) {
+                        client = c = factory.get();
+                    }
+                }
+            }
+            return c;
+        }
+    }
 
     private SheetProperties(Builder b) {
         if (b.scriptUrl == null && b.transport == null) {
@@ -89,13 +109,20 @@ public final class SheetProperties {
         this.cacheStrategy = b.cacheStrategy;
         this.cacheExpiry = b.cacheExpiry;
         this.cacheFile = b.cacheFile;
+        this.queueWindow = b.queueWindow;
+        this.queueMaxOperations = b.queueMaxOperations;
+        this.clientHolder = b.inheritedClient != null ? b.inheritedClient : new ClientHolder();
     }
 
     public static Builder builder() {
         return new Builder();
     }
 
-    /** A builder pre-filled with these properties, e.g. to derive per-entity properties from a shared base. */
+    /**
+     * A builder pre-filled with these properties, e.g. to derive per-entity properties from a shared base.
+     * If only {@code tabName} is changed, the result shares this instance's client — and therefore its
+     * request queue — so requests for both worksheets can go out in the same HTTP call.
+     */
     public Builder toBuilder() {
         Builder b = new Builder();
         b.scriptUrl = scriptUrl;
@@ -113,21 +140,15 @@ public final class SheetProperties {
         b.cacheStrategy = cacheStrategy;
         b.cacheExpiry = cacheExpiry;
         b.cacheFile = cacheFile;
+        b.queueWindow = queueWindow;
+        b.queueMaxOperations = queueMaxOperations;
+        b.inheritedClient = clientHolder;
         return b;
     }
 
     /** The client configured from these properties (created once, then reused). */
     public HibernateSheets client() {
-        HibernateSheets c = client;
-        if (c == null) {
-            synchronized (this) {
-                c = client;
-                if (c == null) {
-                    client = c = buildClient();
-                }
-            }
-        }
-        return c;
+        return clientHolder.get(this::buildClient);
     }
 
     /** The configured tab of the configured spreadsheet. */
@@ -196,6 +217,15 @@ public final class SheetProperties {
         return cacheFile;
     }
 
+    /** {@code null} when requests are not queued. */
+    public Duration queueWindow() {
+        return queueWindow;
+    }
+
+    public int queueMaxOperations() {
+        return queueMaxOperations;
+    }
+
     /** The response cache when {@link #shallCache()} is on, e.g. to {@code invalidate} after external edits. */
     public Optional<SqliteResponseCache> cache() {
         return client().cache();
@@ -218,6 +248,9 @@ public final class SheetProperties {
         postNetworkCallActions.forEach(b::postNetworkCall);
         if (shallCache) {
             b.cache(SqliteResponseCache.open(cacheFile), cacheStrategy, cacheExpiry);
+        }
+        if (queueWindow != null) {
+            b.requestQueue(queueWindow, queueMaxOperations);
         }
         return b.build();
     }
@@ -243,8 +276,38 @@ public final class SheetProperties {
         private CacheStrategy cacheStrategy = CacheStrategy.CACHE_FIRST;
         private CacheExpiry cacheExpiry = CacheExpiry.ttlMinutes(10);
         private Path cacheFile = SqliteResponseCache.defaultFile();
+        private Duration queueWindow;
+        private int queueMaxOperations = 50;
+        private ClientHolder inheritedClient;
 
         private Builder() {
+        }
+
+        /** Any setting other than {@code tabName} needs its own client. */
+        private Builder detached() {
+            inheritedClient = null;
+            return this;
+        }
+
+        /**
+         * Queue requests for up to {@code window} and send everything queued as one HTTP call.
+         * Off by default. See also {@link #queueMaxOperations}.
+         */
+        public Builder queueRequests(Duration window) {
+            if (window.isNegative()) {
+                throw new IllegalArgumentException("window must not be negative");
+            }
+            this.queueWindow = window;
+            return detached();
+        }
+
+        /** Most operations combined into one HTTP call. Defaults to 50. */
+        public Builder queueMaxOperations(int maxOperations) {
+            if (maxOperations < 1) {
+                throw new IllegalArgumentException("maxOperations must be >= 1");
+            }
+            this.queueMaxOperations = maxOperations;
+            return detached();
         }
 
         /**
@@ -253,13 +316,13 @@ public final class SheetProperties {
          */
         public Builder shallCache(boolean shallCache) {
             this.shallCache = shallCache;
-            return this;
+            return detached();
         }
 
         /** Defaults to {@link CacheStrategy#CACHE_FIRST}. */
         public Builder cacheStrategy(CacheStrategy strategy) {
             this.cacheStrategy = Objects.requireNonNull(strategy);
-            return this;
+            return detached();
         }
 
         /**
@@ -269,31 +332,31 @@ public final class SheetProperties {
          */
         public Builder cacheExpiry(CacheExpiry expiry) {
             this.cacheExpiry = Objects.requireNonNull(expiry);
-            return this;
+            return detached();
         }
 
         /** SQLite database file. Defaults to {@code ~/.hibernate-sheets/cache.db}. */
         public Builder cacheFile(Path file) {
             this.cacheFile = Objects.requireNonNull(file);
-            return this;
+            return detached();
         }
 
         /** The engine web app's {@code /exec} URL. */
         public Builder scriptUrl(String url) {
             this.scriptUrl = Objects.requireNonNull(url);
-            return this;
+            return detached();
         }
 
         /** Replace the HTTP transport (custom auth, testing); {@link #scriptUrl} and timeouts are then unused. */
         public Builder transport(Transport transport) {
             this.transport = Objects.requireNonNull(transport);
-            return this;
+            return detached();
         }
 
         /** The spreadsheet: its full URL ({@code https://docs.google.com/spreadsheets/d/<id>/...}) or bare id. */
         public Builder dbSheetUrl(String urlOrId) {
             this.spreadsheetId = spreadsheetIdOf(Objects.requireNonNull(urlOrId));
-            return this;
+            return detached();
         }
 
         /** Worksheet (tab) name. If unset, the entity's {@code @SheetTable} or simple class name is used. */
@@ -305,40 +368,40 @@ public final class SheetProperties {
         /** Time zone of the spreadsheet, used for date conversion. Defaults to UTC. */
         public Builder timeZone(ZoneId zone) {
             this.timeZone = Objects.requireNonNull(zone);
-            return this;
+            return detached();
         }
 
         public Builder retryPolicy(RetryPolicy policy) {
             this.retryPolicy = Objects.requireNonNull(policy);
-            return this;
+            return detached();
         }
 
         public Builder connectTimeout(Duration timeout) {
             this.connectTimeout = Objects.requireNonNull(timeout);
-            return this;
+            return detached();
         }
 
         public Builder requestTimeout(Duration timeout) {
             this.requestTimeout = Objects.requireNonNull(timeout);
-            return this;
+            return detached();
         }
 
         /** OAuth access token supplier for deployments restricted to Google accounts. */
         public Builder accessToken(Supplier<String> tokenSupplier) {
             this.accessToken = tokenSupplier;
-            return this;
+            return detached();
         }
 
         /** Runs before every HTTP attempt (including retries), in registration order. */
         public Builder preNetworkCall(Consumer<NetworkCall> action) {
             this.preNetworkCallActions.add(Objects.requireNonNull(action));
-            return this;
+            return detached();
         }
 
         /** Runs after every HTTP attempt, whether it succeeded or failed, in registration order. */
         public Builder postNetworkCall(Consumer<NetworkCallResult> action) {
             this.postNetworkCallActions.add(Objects.requireNonNull(action));
-            return this;
+            return detached();
         }
 
         public SheetProperties build() {

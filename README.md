@@ -77,6 +77,7 @@ Operation (immutable record)            ← transport-neutral description of one
   ▼
 HibernateSheets.execute(List<Operation>)  ← one HTTP request, retry policy
   │  SqliteResponseCache (optional)     ← reads served from / stored in SQLite; writes invalidate
+  │  RequestQueue (optional)            ← requests made close together → one HTTP call
   │  pre/post network-call actions      ← run around every HTTP attempt
   │  Transport (HttpTransport default)  ← POST /exec, follow Apps Script 302, auth header
   ▼
@@ -259,6 +260,7 @@ public class Employee {
 | `accessToken` | none | OAuth token supplier. |
 | `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
 | `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db` | See [Response cache](#response-cache). |
+| `queueRequests`, `queueMaxOperations` | off, 50 | See [Request queue](#request-queue-fewer-network-calls). |
 
 What you get from it:
 
@@ -281,6 +283,11 @@ public static final SheetProperties PROPERTIES = BASE.toBuilder().tabName("Emplo
 // in Department
 public static final SheetProperties PROPERTIES = BASE.toBuilder().tabName("Departments").build();
 ```
+
+Properties derived with `toBuilder()` that change **only `tabName`** share the base's client — one
+HTTP client, one cache connection, one request queue — so Employee and Department requests can be
+sent together. Changing any other setting (hooks, cache, retry, …) gives the derived properties a
+client of their own.
 
 `@SheetTable` + `db.repository(Entity.class)` keep working; `SheetProperties` is the alternative for
 when each entity needs its own settings.
@@ -398,6 +405,74 @@ HibernateSheets db = HibernateSheets.builder()
 
 ---
 
+## Request queue (fewer network calls)
+
+Every Apps Script call costs a round trip of a second or more and counts against quota. The engine
+already processes several operations per request, so the client can **queue requests made close
+together and send them as one HTTP call**, then hand each caller its own result.
+
+```java
+SheetProperties.builder()
+        ...
+        .queueRequests(Duration.ofMillis(20))   // wait up to 20 ms for more requests
+        .queueMaxOperations(50)                 // at most 50 operations per HTTP call (default)
+        .build();
+
+// or without SheetProperties
+HibernateSheets.builder().endpoint(...).requestQueue(Duration.ofMillis(20), 50).build();
+```
+
+Off by default. Nothing else changes in your code: results, exceptions and caching behave as if each
+request had been sent alone.
+
+### Where the savings come from
+
+**Async calls from one thread.** Fire several requests without waiting, then collect the results:
+
+```java
+CompletableFuture<List<Employee>> engineers = Employee.PROPERTIES.worksheet().select()
+        .where(eq("Department", "Engineering")).fetchAsync(Employee.class);
+CompletableFuture<List<Row>> depts = Department.PROPERTIES.worksheet().select().fetchAsync();
+CompletableFuture<RowsResult> added = Employee.PROPERTIES.worksheet().insert(newHire).executeAsync();
+
+// one HTTP call for all three
+render(engineers.join(), depts.join(), added.join().rows());
+```
+
+Async methods: `executeAsync()` on every operation (insert, update, delete, upsert, clone, select…),
+`fetchAsync()` / `fetchAsync(Class)` on selects, and `HibernateSheets.executeAsync(List<Operation>)` /
+`executeOneAsync(...)`. They also work without a queue (each runs on a background thread).
+
+**Concurrent callers.** Synchronous calls from different threads — e.g. web requests in a server —
+are combined too: each caller blocks until its own result arrives.
+
+**While a call is in flight**, new requests accumulate and go out together in the next call, so
+batches grow automatically under load. Plain sequential synchronous code (one call after another on
+one thread) gains nothing, and waits up to the window per call.
+
+### Guarantees
+
+- **Order.** Queued requests reach the engine in the order they were made, one HTTP call at a time.
+  Inside a combined call the engine runs operations in order, so later requests see earlier writes.
+- **Isolation.** Each request keeps its own outcome. If the engine rejects a combined call (e.g. one
+  query names a missing column), it has written nothing; the client then re-sends each request
+  alone, so only the faulty request fails. This costs extra calls only when something fails.
+- **Network failures** (timeout, connection reset) fail every request in that call, exactly as they
+  would fail a single request today: a timed-out write may or may not have been committed. Reads are
+  retried per the [retry policy](#retries); combined calls containing writes are not.
+- **Not queued:** `create`, `clear` and `addColumns` (the engine applies them immediately, so they
+  could not be safely re-sent), requests larger than `queueMaxOperations`, and calls made from a
+  network hook. These go straight to the network.
+- **Explicit batches** (`db.batch()`) are queued as one request and stay all-or-nothing.
+- **Cache.** Cache hits are answered without queueing; each queued read is cached as its own entry.
+- **Threads.** HTTP calls run on a daemon thread named `hibernate-sheets-queue`, so network hooks run
+  there; `CompletableFuture` callbacks run on a separate pool, never on the queue thread.
+
+Requests only combine when they go through the same client — the same `HibernateSheets`, or
+`SheetProperties` derived by `tabName` only (see [above](#per-entity-configuration-sheetproperties)).
+
+---
+
 ## Deployment, auth and errors
 
 - **Endpoint**: the `/exec` URL of the web app deployment (your `deploy.sh` prints it).
@@ -451,13 +526,14 @@ These are in the Apps Script code, not the SDK. The SDK works around (1) and gua
 ## Building and testing
 
 ```bash
-mvn test       # 52 unit tests, no network: request contract, response parsing,
+mvn test       # 64 unit tests, no network: request contract, response parsing,
                # batching, retries, entity mapping, SheetProperties and network hooks,
                # cache expiry/strategies/invalidation against a temp SQLite file,
+               # request queue (combining, ordering, isolation, threads),
                # and the HTTP redirect flow against an in-process server
 mvn package
 ```
 
 Integration tests (`*IT`) hit a live deployment and are run explicitly, e.g. `mvn test -Dtest='*IT'`.
 `Employee` in the integration tests is the reference example of an entity with its own
-`SheetProperties`, network hooks and caching.
+`SheetProperties`, network hooks, caching and request queueing.

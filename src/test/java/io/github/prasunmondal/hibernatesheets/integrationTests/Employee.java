@@ -9,6 +9,7 @@ import io.github.prasunmondal.hibernatesheets.mapping.SheetKey;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 
@@ -23,6 +24,8 @@ public class Employee {
             .cacheStrategy(CacheStrategy.CACHE_FIRST)
             .cacheExpiry(CacheExpiry.ttlMinutes(30).or(CacheExpiry.dailyAt(LocalTime.of(1, 0), LocalTime.of(15, 0))))
             .cacheFile(Path.of(System.getProperty("java.io.tmpdir"), "hibernate-sheets-it", "cache.db"))
+            .queueRequests(Duration.ofMillis(20))
+            .queueMaxOperations(50)
             .preNetworkCall(call -> LOG.log(System.Logger.Level.DEBUG,
                     () -> "Employee request " + call.requestId() + " attempt " + call.attempt()))
             .postNetworkCall(result -> LOG.log(System.Logger.Level.DEBUG,

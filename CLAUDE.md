@@ -75,6 +75,21 @@ it fails). Writes from clients **without** the same cache file are invisible unt
 sets freshness; `CacheStrategy.NETWORK_FIRST` falls back to stale entries only on transport/retryable
 errors. Cache I/O failures are logged and never fail a request.
 
+### Request queue (`RequestQueue`, package-private)
+
+Opt-in via `SheetProperties.queueRequests(window)` / `HibernateSheets.Builder.requestQueue(...)`.
+`execute` is built on `submit(ops, async)` returning `CompletableFuture`s; `execute` just `await`s and
+rethrows the original exception. Without a queue, sync calls still run inline on the caller's thread.
+With one, requests are collected for up to `window` and sent by a single daemon worker thread, one
+HTTP call at a time (preserves order; avoids the engine's no-locking race). Combined replies are split
+per caller with `ResponseParser.slice` (results renumbered from `op-1`), which is also what gets cached.
+A non-retryable `ServerException` on a combined call → every request is re-sent alone (engine wrote no
+row changes). Schema ops (CREATE/CLEAR/ADD_COLUMNS) are never queued because they apply immediately
+and could not be re-sent safely. Calls made on the worker thread (from hooks) bypass the queue to
+avoid deadlock; caller futures complete on the `hibernate-sheets-async` pool, never the worker.
+`SheetProperties.toBuilder()` shares the parent's client (hence queue/cache) unless a setting other
+than `tabName` changes — every other builder setter calls `detached()`.
+
 `Batch` groups several specs into one request and hands back `Ref<T>` handles resolved after
 `batch.execute()`. Engine semantics: row ops commit together at the end (all-or-nothing for row
 changes), later ops see earlier ones, but `create` / `addColumns` / `clear` hit the sheet immediately.

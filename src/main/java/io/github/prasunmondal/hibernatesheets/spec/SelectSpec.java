@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /** SELECT. Returns all columns unless {@link #columns(String...)} restricts them. */
 public final class SelectSpec extends FilterSpec<SelectSpec> {
@@ -40,6 +41,15 @@ public final class SelectSpec extends FilterSpec<SelectSpec> {
 
     public <T> List<T> fetch(Class<T> type) {
         return execute().as(type);
+    }
+
+    /** {@link #fetch()} without waiting; see {@link #executeAsync()}. */
+    public CompletableFuture<List<Row>> fetchAsync() {
+        return executeAsync().thenApply(RowsResult::rows);
+    }
+
+    public <T> CompletableFuture<List<T>> fetchAsync(Class<T> type) {
+        return executeAsync().thenApply(r -> r.as(type));
     }
 
     /** Fetches with {@code limit 1} (the spec itself is not modified). */

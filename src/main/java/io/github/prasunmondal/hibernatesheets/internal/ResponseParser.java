@@ -3,6 +3,8 @@ package io.github.prasunmondal.hibernatesheets.internal;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.prasunmondal.hibernatesheets.exception.ServerException;
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
 import io.github.prasunmondal.hibernatesheets.result.AddColumnsResult;
@@ -70,6 +72,30 @@ public final class ResponseParser {
         JsonNode debug = root.get("debug");
         return new ExecutionResponse(root.path("requestId").asText(null),
                 root.path("executionTime").asLong(0), results, debug);
+    }
+
+    /**
+     * The part of a successful combined reply that belongs to operations {@code offset .. offset+count-1},
+     * renumbered from {@code op-1} as if those operations had been sent alone.
+     */
+    public String slice(String body, int offset, int count) {
+        try {
+            JsonNode root = mapper.readTree(body);
+            Map<String, JsonNode> byId = new HashMap<>();
+            for (JsonNode result : root.path("results")) {
+                byId.put(result.path("operationId").asText(), result);
+            }
+            ObjectNode copy = ((ObjectNode) root).deepCopy();
+            ArrayNode results = copy.putArray("results");
+            for (int i = 0; i < count; i++) {
+                ObjectNode result = ((ObjectNode) byId.get(RequestSerializer.operationId(offset + i))).deepCopy();
+                result.put("operationId", RequestSerializer.operationId(i));
+                results.add(result);
+            }
+            return mapper.writeValueAsString(copy);
+        } catch (Exception e) {
+            throw new TransportException("Cannot split engine reply: " + e.getMessage(), 200, e, false);
+        }
     }
 
     private ServerException serverError(JsonNode root) {

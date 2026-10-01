@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * A fluent, not-yet-executed operation against one worksheet.
@@ -40,6 +41,14 @@ public abstract class OperationSpec<R extends OperationResult> {
     /** Sends this operation as a single-operation request and returns its result. */
     public R execute() {
         return worksheet.client().executeOne(toOperation(), resultType());
+    }
+
+    /**
+     * Sends this operation without waiting. With a request queue configured, operations submitted
+     * close together are sent in one HTTP call. Spec validation errors are thrown immediately.
+     */
+    public CompletableFuture<R> executeAsync() {
+        return worksheet.client().executeOneAsync(toOperation(), resultType());
     }
 
     public Worksheet worksheet() {
