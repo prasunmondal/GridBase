@@ -1,5 +1,7 @@
 package io.github.prasunmondal.hibernatesheets.integrationTests;
 
+import io.github.prasunmondal.hibernatesheets.Batch;
+import io.github.prasunmondal.hibernatesheets.Ref;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.result.Row;
 import io.github.prasunmondal.hibernatesheets.result.RowsResult;
@@ -21,6 +23,7 @@ import static io.github.prasunmondal.hibernatesheets.query.Filters.in;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.isNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** DELETE removes sheet rows; the remaining rows must be intact and correctly aligned. */
 class DeleteIT {
@@ -132,6 +135,32 @@ class DeleteIT {
     void deleteWithoutWhereRefused() {
         assertThrows(IllegalStateException.class, () -> employees.delete().execute());
         assertEquals(EMPLOYEE_COUNT, employeeCount());
+    }
+
+    @Test
+    @DisplayName("a row deleted earlier in a batch is gone for later operations in the same batch")
+    void deletedRowInvisibleLaterInBatch() {
+        Batch batch = ItConfig.db().batch();
+        batch.add(employees.delete().where(eq("EmployeeId", "E005")));
+        Ref<RowsResult> after = batch.add(employees.select().where(eq("EmployeeId", "E005")));
+        batch.execute();
+
+        assertEquals(0, after.get().count());
+        assertEquals(EMPLOYEE_COUNT - 1, employeeCount());
+    }
+
+    @Test
+    @DisplayName("deleting the same row twice in one batch deletes only that row")
+    void doubleDeleteInBatchKeepsNeighbour() {
+        Batch batch = ItConfig.db().batch();
+        Ref<RowsResult> first = batch.add(employees.delete().where(eq("EmployeeId", "E005")));
+        Ref<RowsResult> second = batch.add(employees.delete().where(eq("EmployeeId", "E005")));
+        batch.execute();
+
+        assertEquals(1, first.get().count());
+        assertEquals(0, second.get().count());
+        assertEquals(EMPLOYEE_COUNT - 1, employeeCount());
+        assertTrue(employees.select().where(eq("EmployeeId", "E006")).fetchFirst().isPresent());
     }
 
     @Test

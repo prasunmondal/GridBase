@@ -1,7 +1,10 @@
 package io.github.prasunmondal.hibernatesheets.integrationTests;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.query.Sort;
+import io.github.prasunmondal.hibernatesheets.transport.HttpTransport;
 import io.github.prasunmondal.hibernatesheets.result.Row;
 import io.github.prasunmondal.hibernatesheets.result.RowsResult;
 import org.junit.jupiter.api.BeforeAll;
@@ -17,11 +20,13 @@ import static io.github.prasunmondal.hibernatesheets.integrationTests.TestData.E
 import static io.github.prasunmondal.hibernatesheets.integrationTests.TestData.EMPLOYEE_COUNT;
 import static io.github.prasunmondal.hibernatesheets.integrationTests.TestData.ids;
 import static io.github.prasunmondal.hibernatesheets.integrationTests.TestData.sortedIds;
+import static io.github.prasunmondal.hibernatesheets.query.Filters.between;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.contains;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.endsWith;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.eq;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.gt;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.gte;
+import static io.github.prasunmondal.hibernatesheets.query.Filters.in;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.isNotNull;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.isNull;
 import static io.github.prasunmondal.hibernatesheets.query.Filters.lt;
@@ -394,6 +399,34 @@ class SelectQueryIT {
         assertEquals("Ananya Ghosh", hr.get(0).name);
         assertEquals(110000L, hr.get(0).salary.longValue());
         assertEquals(LocalDate.of(2016, 2, 1), hr.get(0).joiningDate);
+    }
+
+    @Test
+    @DisplayName("IN on SELECT")
+    void inOnSelect() {
+        List<Row> rows = employees.select().where(in("EmployeeId", "E001", "E002")).orderBy("EmployeeId").fetch();
+        assertEquals(List.of("E001", "E002"), ids(rows));
+    }
+
+    @Test
+    @DisplayName("BETWEEN on SELECT (inclusive)")
+    void betweenOnSelect() {
+        List<Row> rows = employees.select().where(between("Age", 22, 26)).orderBy("EmployeeId").fetch();
+        assertEquals(List.of("E003", "E008", "E010"), ids(rows));
+    }
+
+    @Test
+    @DisplayName("EQUALS with a raw JSON number matches a numeric cell")
+    void rawNumericEquals() throws Exception {
+        HttpTransport raw = HttpTransport.builder(ItConfig.ENDPOINT).build();
+        String body = "{\"requestId\":\"raw\",\"operations\":[{\"id\":\"1\",\"type\":\"SELECT\","
+                + "\"spreadsheetId\":\"" + ItConfig.SPREADSHEET_ID + "\",\"worksheet\":\"" + TestData.EMPLOYEES + "\","
+                + "\"where\":[{\"column\":\"Age\",\"operator\":\"EQUALS\",\"value\":25}]}]}";
+        JsonNode reply = new ObjectMapper().readTree(raw.send(body));
+
+        assertTrue(reply.path("success").asBoolean());
+        assertEquals(1, reply.path("results").get(0).path("rowCount").asInt());
+        assertEquals(1, employees.select().where(eq("Age", 25)).fetch().size());
     }
 
     @Test

@@ -497,29 +497,35 @@ Writes are not retried because a timed-out write may already be committed; opt i
 
 ---
 
-## Engine issues found while building the SDK
+## Engine issues
 
-These are in the Apps Script code, not the SDK. The SDK works around (1) and guards against part of (4).
+These are in the Apps Script engine (`appscript/` / `server-appscript/`), not the SDK.
+**Redeploy the engine** for the fixes to take effect on a live deployment.
 
-1. **EQUALS with a number never matches.** `CompiledEqualsPredicate` does
-   `String(cell) === this.expectedValue` without `String()` on the expected value, so JSON `5` fails
-   against a cell holding 5. The SDK always sends text. Server fix: `=== String(this.expectedValue)`.
-2. **`IN` and `BETWEEN` are rejected on SELECT.** `RequestValidator.validatePredicate` only accepts
-   binary and unary predicates, so a SELECT using them fails with *Unsupported predicate: InPredicate*
-   (UPDATE/DELETE skip validation, so they work there). Fix: add a
-   `predicate instanceof MultiValuePredicate` branch that checks the column.
-3. **Deleted rows stay visible within a batch — risk of deleting the wrong row.** `DeleteExecutor`
-   marks rows deleted but leaves them in `worksheetData.rows`, so a later SELECT in the same request
-   still returns them. Worse, a second DELETE matching the same row pushes it again, and
-   `commitDeleted` calls `deleteRow` twice on the same index — the second call removes whichever row
-   shifted into that position. Fix: skip
-   `RowState.DELETED` rows in `ExecutionExecutor.execute`, and de-duplicate the change set.
-4. **No locking.** Two concurrent requests both append at `getLastRow() + 1` and can overwrite each
-   other. Fix: wrap `handlePost` in `LockService.getScriptLock().waitLock(30000)` / `releaseLock()`.
-5. **No authentication.** Anyone holding the URL can read and write every spreadsheet the script can
-   reach, by passing any `spreadsheetId`. Consider a shared secret checked against Script Properties
-   plus an allow-list of spreadsheet ids. `doPost` cannot read request headers, so the secret has to
-   travel in the JSON body; a custom `Transport` can add it before sending.
+### Fixed
+
+| Issue | Fix | Regression test |
+|---|---|---|
+| **EQUALS with a JSON number never matched** (`String(cell) === 5`). | `CompiledEqualsPredicate` compares against `String(expectedValue)`. The SDK still sends text, so it works with old deployments too. | `SelectQueryIT.rawNumericEquals` |
+| **`IN` / `BETWEEN` rejected on SELECT** (*Unsupported predicate*). | `RequestValidator.validatePredicate` accepts them and checks the column and values. | `SelectQueryIT.inOnSelect`, `betweenOnSelect` |
+| **Deleted rows stayed visible within a batch**, and deleting the same row twice also deleted the next row. | `ExecutionExecutor` skips rows already deleted in the request; `commitDeleted` deletes each sheet row once, bottom-up. | `DeleteIT.deletedRowInvisibleLaterInBatch`, `doubleDeleteInBatchKeepsNeighbour` |
+| **No locking** — concurrent requests appending at `getLastRow() + 1` overwrote each other. | `SheetEngine.handlePost` takes `LockService.getScriptLock()` for any request that writes (waits up to `EngineConfig.lockTimeoutMillis`, 30 s) and releases it in `finally`. Read-only requests don't wait. | `InsertIT.concurrentInsertsAllLand` |
+
+Notes on the lock:
+
+- It is a **script** lock, so writes to *different* spreadsheets through the same deployment are
+  serialized too. Apps Script has no per-spreadsheet lock for standalone scripts.
+- If the wait times out, the engine answers `success:false` with *Lock timeout…*; the SDK treats it
+  as retryable. Nothing ran, but writes are still only retried when you opt in with
+  `retryingWrites(true)`.
+- Reads don't take the lock, so a read that overlaps a write's commit can see it half-applied.
+
+### Open
+
+- **No authentication.** Anyone holding the URL can read and write every spreadsheet the script can
+  reach, by passing any `spreadsheetId`. Consider a shared secret checked against Script Properties
+  plus an allow-list of spreadsheet ids. `doPost` cannot read request headers, so the secret has to
+  travel in the JSON body; a custom `Transport` can add it before sending.
 
 ---
 

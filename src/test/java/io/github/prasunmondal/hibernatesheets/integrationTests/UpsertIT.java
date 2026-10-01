@@ -107,6 +107,14 @@ class UpsertIT {
     }
 
     @Test
+    @DisplayName("plain where(...) upsert does not copy filter values into the inserted row (use key())")
+    void upsertWithoutKeyLeavesLookupColumnBlank() {
+        employees.upsert().where(eq("EmployeeId", "E011")).set("Name", "Keyless").execute();
+        Row row = employees.select().where(eq("Name", "Keyless")).fetchFirst().orElseThrow();
+        assertTrue(row.isBlank("EmployeeId"));
+    }
+
+    @Test
     @DisplayName("upsert without a key/where, or with nothing to set, is refused before sending")
     void requiresKeyAndValues() {
         // no filter: the engine would treat every row as a match and update the whole sheet

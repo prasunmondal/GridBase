@@ -14,6 +14,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static io.github.prasunmondal.hibernatesheets.integrationTests.TestData.EMPLOYEE_COUNT;
 import static io.github.prasunmondal.hibernatesheets.integrationTests.TestData.employee;
@@ -220,6 +224,31 @@ class InsertIT {
     void duplicateKeysAllowed() {
         employees.insert(newEmployee("E001", "Duplicate Of Aarav")).execute();
         assertEquals(2, employees.select().where(eq("EmployeeId", "E001")).execute().rowCount());
+    }
+
+    @Test
+    @DisplayName("concurrent inserts from separate requests don't overwrite each other (engine lock)")
+    void concurrentInsertsAllLand() throws Exception {
+        int writers = 5;
+        ExecutorService pool = Executors.newFixedThreadPool(writers);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> done = new ArrayList<>();
+        for (int i = 0; i < writers; i++) {
+            String id = "E2" + i;
+            done.add(pool.submit(() -> {
+                start.await();
+                employees.insert(newEmployee(id, "Concurrent " + id)).execute();
+                return null;
+            }));
+        }
+        start.countDown();
+        for (Future<?> f : done) {
+            f.get();
+        }
+        pool.shutdown();
+
+        assertEquals(EMPLOYEE_COUNT + writers, employeeCount());
+        assertEquals(writers, employees.select().where(startsWith("Name", "Concurrent ")).fetch().size());
     }
 
     @Test

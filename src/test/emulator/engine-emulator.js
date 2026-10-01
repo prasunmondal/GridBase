@@ -168,6 +168,18 @@ global.SpreadsheetApp = {
   }
 };
 
+// Requests are handled one at a time here, so the script lock never has to wait.
+global.LockService = {
+  getScriptLock() {
+    return {
+      waitLock() {},
+      tryLock() { return true; },
+      releaseLock() {},
+      hasLock() { return true; }
+    };
+  }
+};
+
 global.ContentService = {
   MimeType: { JSON: 'JSON', TEXT: 'TEXT' },
   createTextOutput(content) {

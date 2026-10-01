@@ -22,6 +22,8 @@ class SheetEngine {
 
         let context = null;
 
+        let lock = null;
+
         try {
 
             const json = JSON.parse(e.postData.contents);
@@ -30,6 +32,21 @@ class SheetEngine {
             context = new ExecutionContext(request);
 
             RequestValidator.validate(request);
+
+            //
+            // Requests that write are serialized: two of them appending at
+            // getLastRow() + 1 at the same time would overwrite each other.
+            // Read-only requests never write, so they don't wait.
+            //
+            if (this.writes(request)) {
+
+                const scriptLock = LockService.getScriptLock();
+
+                scriptLock.waitLock(this.config.lockTimeoutMillis);
+
+                lock = scriptLock;
+
+            }
 
             context.provider =
                 new GoogleSheetsProvider(
@@ -63,7 +80,22 @@ class SheetEngine {
                 }))
                 .setMimeType(ContentService.MimeType.JSON);
 
+        } finally {
+
+            if (lock) {
+                lock.releaseLock();
+            }
+
         }
+
+    }
+
+    writes(request) {
+
+        return request.getOperations().some(function (operation) {
+            return operation.type !== OperationType.SELECT &&
+                operation.type !== OperationType.GET_COLUMNS;
+        });
 
     }
 

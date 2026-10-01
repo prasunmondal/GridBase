@@ -14,6 +14,9 @@ class EngineConfig {
 
         this.executionTimeoutMillis = 300000;
 
+        // How long a writing request waits for another one to finish.
+        this.lockTimeoutMillis = 30000;
+
     }
 
 }
