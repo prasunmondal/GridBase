@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A Java 17 Maven library (`io.github.prasunmondal:hibernate-sheets-client`) that is a typed client for
 the **hibernate.sheets** Google Apps Script engine (Google Sheets used as a database). The engine
 itself (the `appscript/` JS sources) lives in a separate repo; this repo only contains the SDK.
-Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-datatype-jsr310`;
-HTTP uses the JDK `java.net.http.HttpClient`.
+Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-datatype-jsr310` +
+`sqlite-jdbc` (response cache); HTTP uses the JDK `java.net.http.HttpClient`.
 
 ## Commands
 
@@ -47,6 +47,9 @@ Request pipeline (nothing is sent until `execute()` / `fetch()`):
 
 1. **Fluent API** — `Worksheet` (from `HibernateSheets.worksheet(name)`) and `mapping.Repository<T>`
    (from `db.repository(Entity.class)`, driven by `@SheetTable` / `@SheetKey` + Jackson property names).
+   Alternatively an entity declares a `SheetProperties` constant (script URL, spreadsheet URL/id, tab,
+   time zone, retry, timeouts, auth, pre/post network-call actions) and uses `PROPERTIES.repository(Entity.class)`;
+   it owns a lazily built `HibernateSheets` client. See `integrationTests/Employee`.
 2. **Specs** (`spec/*Spec`) — builders that each produce one immutable `spec.Operation` record, the
    transport-neutral description of an engine op. `UPDATE`/`DELETE` require `where(...)` unless `all()`.
 3. **`internal.RequestSerializer`** — encodes operations into the exact JSON contract of the engine's
@@ -59,6 +62,18 @@ Request pipeline (nothing is sent until `execute()` / `fetch()`):
    across hosts. Tests stub it with `FakeTransport`.
 6. **`internal.ResponseParser`** — maps success to `result.*` types; `success:false` →
    `ServerException`; an HTML page instead of JSON → `TransportException`.
+
+### Response cache (`cache/`)
+
+Opt-in via `SheetProperties.shallCache(true)` (or `HibernateSheets.Builder.cache(...)`). In
+`HibernateSheets.execute`, fully read-only requests are keyed by SHA-256 of the serialized operations
+and the raw engine reply is stored in SQLite (`SqliteResponseCache`, one shared connection per file),
+tagged with the worksheets read. Hits are re-parsed by `ResponseParser`, so POJO mapping is unchanged
+and pre/post network actions don't fire. Any non-read-only request invalidates its worksheets (even if
+it fails). Writes from clients **without** the same cache file are invisible until expiry — that's why
+`TestData.resetAll()` invalidates `Employee`'s cache. `CacheExpiry` (ttl / dailyAt, combined with `or`)
+sets freshness; `CacheStrategy.NETWORK_FIRST` falls back to stale entries only on transport/retryable
+errors. Cache I/O failures are logged and never fail a request.
 
 `Batch` groups several specs into one request and hands back `Ref<T>` handles resolved after
 `batch.execute()`. Engine semantics: row ops commit together at the end (all-or-nothing for row

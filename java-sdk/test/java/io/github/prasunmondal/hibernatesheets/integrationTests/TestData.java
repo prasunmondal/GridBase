@@ -168,6 +168,7 @@ public final class TestData {
         batch.add(employeesSheet().insertAll(employees()));
         batch.add(departmentsSheet().insertAll(departments()));
         batch.execute();
+        Employee.PROPERTIES.cache().ifPresent(c -> c.invalidate(ItConfig.SPREADSHEET_ID, EMPLOYEES));
     }
 
     // ------------------------------------------------------------------ assertion helpers

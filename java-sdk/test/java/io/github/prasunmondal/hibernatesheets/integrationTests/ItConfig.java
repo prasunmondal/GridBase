@@ -2,6 +2,7 @@ package io.github.prasunmondal.hibernatesheets.integrationTests;
 
 import io.github.prasunmondal.hibernatesheets.HibernateSheets;
 import io.github.prasunmondal.hibernatesheets.RetryPolicy;
+import io.github.prasunmondal.hibernatesheets.SheetProperties;
 
 import java.time.Duration;
 import java.time.ZoneId;
@@ -27,6 +28,15 @@ public final class ItConfig {
             "1C8rsAWa0XfpxfHSb-F-FALSvmCT1knQ5lBoegQ8Phwc");
 
     public static final ZoneId ZONE = ZoneId.of(setting("hs.timeZone", "HS_TIME_ZONE", "Asia/Kolkata"));
+
+    /** Connection settings shared by the entity classes; each derives its own via {@code toBuilder()}. */
+    public static final SheetProperties BASE_PROPERTIES = SheetProperties.builder()
+            .scriptUrl(ENDPOINT)
+            .dbSheetUrl(SPREADSHEET_ID)
+            .timeZone(ZONE)
+            .requestTimeout(Duration.ofSeconds(120))
+            .retryPolicy(RetryPolicy.defaults())
+            .build();
 
     private static volatile HibernateSheets db;
 

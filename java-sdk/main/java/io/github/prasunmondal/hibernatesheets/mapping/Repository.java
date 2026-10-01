@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.prasunmondal.hibernatesheets.Batch;
 import io.github.prasunmondal.hibernatesheets.HibernateSheets;
 import io.github.prasunmondal.hibernatesheets.Ref;
+import io.github.prasunmondal.hibernatesheets.SheetProperties;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.query.Filter;
 import io.github.prasunmondal.hibernatesheets.query.Filters;
@@ -48,6 +49,15 @@ public final class Repository<T> {
         this.worksheet = meta.spreadsheetId() != null
                 ? client.worksheet(meta.spreadsheetId(), meta.worksheet())
                 : client.worksheet(meta.worksheet());
+    }
+
+    /** Uses the client, spreadsheet and tab from {@code properties}; the tab falls back to the entity's. */
+    public Repository(SheetProperties properties, Class<T> type) {
+        this.client = properties.client();
+        this.type = Objects.requireNonNull(type);
+        this.meta = EntityMetadata.of(type);
+        String tab = properties.tabName() != null ? properties.tabName() : meta.worksheet();
+        this.worksheet = client.worksheet(properties.spreadsheetId(), tab);
     }
 
     public Worksheet worksheet() {

@@ -31,7 +31,7 @@ class RepositoryIT {
     @BeforeEach
     void reset() {
         TestData.resetAll();
-        employees = ItConfig.db().repository(Employee.class);
+        employees = Employee.repository();
         departments = ItConfig.db().repository(Department.class);
     }
 

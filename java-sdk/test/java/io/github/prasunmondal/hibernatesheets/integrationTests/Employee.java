@@ -1,15 +1,38 @@
 package io.github.prasunmondal.hibernatesheets.integrationTests;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.prasunmondal.hibernatesheets.SheetProperties;
+import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
+import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
+import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.mapping.SheetKey;
-import io.github.prasunmondal.hibernatesheets.mapping.SheetTable;
 
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.time.LocalDate;
+import java.time.LocalTime;
 
 /** POJO entity for IT_Employees (column names differ in case, hence @JsonProperty). */
-@SheetTable(worksheet = TestData.EMPLOYEES)
 public class Employee {
+
+    private static final System.Logger LOG = System.getLogger(Employee.class.getName());
+
+    public static final SheetProperties PROPERTIES = ItConfig.BASE_PROPERTIES.toBuilder()
+            .tabName(TestData.EMPLOYEES)
+            .shallCache(true)
+            .cacheStrategy(CacheStrategy.CACHE_FIRST)
+            .cacheExpiry(CacheExpiry.ttlMinutes(30).or(CacheExpiry.dailyAt(LocalTime.of(1, 0), LocalTime.of(15, 0))))
+            .cacheFile(Path.of(System.getProperty("java.io.tmpdir"), "hibernate-sheets-it", "cache.db"))
+            .preNetworkCall(call -> LOG.log(System.Logger.Level.DEBUG,
+                    () -> "Employee request " + call.requestId() + " attempt " + call.attempt()))
+            .postNetworkCall(result -> LOG.log(System.Logger.Level.DEBUG,
+                    () -> "Employee request " + result.call().requestId() + " took " + result.elapsed().toMillis()
+                            + " ms" + (result.succeeded() ? "" : ", failed: " + result.failure().getMessage())))
+            .build();
+
+    public static Repository<Employee> repository() {
+        return PROPERTIES.repository(Employee.class);
+    }
 
     @SheetKey
     @JsonProperty("EmployeeId")

@@ -19,8 +19,28 @@ List<Row> open = orders.select()
         .fetch();
 ```
 
-Dependencies: `jackson-databind` and `jackson-datatype-jsr310` only. HTTP uses the JDK's
-`java.net.http.HttpClient`.
+Or configure everything about one entity — engine URL, spreadsheet, tab, retries, network hooks,
+caching — in a single `SheetProperties` object the entity carries:
+
+```java
+public class Employee {
+    public static final SheetProperties PROPERTIES = SheetProperties.builder()
+            .scriptUrl("https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec")
+            .dbSheetUrl("https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit")
+            .tabName("Employees")
+            .shallCache(true)
+            .cacheExpiry(CacheExpiry.ttlMinutes(30))
+            .build();
+
+    public static Repository<Employee> repository() { return PROPERTIES.repository(Employee.class); }
+    ...
+}
+
+Optional<Employee> e = Employee.repository().findById("E001");
+```
+
+Dependencies: `jackson-databind`, `jackson-datatype-jsr310` and `sqlite-jdbc` (for the response
+cache). HTTP uses the JDK's `java.net.http.HttpClient`.
 
 ---
 
@@ -56,14 +76,20 @@ Operation (immutable record)            ← transport-neutral description of one
   │  RequestSerializer                  ← exact JSON contract of RequestParser.js
   ▼
 HibernateSheets.execute(List<Operation>)  ← one HTTP request, retry policy
+  │  SqliteResponseCache (optional)     ← reads served from / stored in SQLite; writes invalidate
+  │  pre/post network-call actions      ← run around every HTTP attempt
   │  Transport (HttpTransport default)  ← POST /exec, follow Apps Script 302, auth header
   ▼
 ResponseParser                          ← success → typed results; success:false → ServerException
 ```
 
+`SheetProperties` sits on top: it holds all the settings for one entity/worksheet and builds the
+`HibernateSheets` client (and cache) from them.
+
 | Package | Contents |
 |---|---|
-| `hibernatesheets` | `HibernateSheets` (client), `Worksheet`, `Batch`/`Ref`/`BatchResult`, `RetryPolicy` |
+| `hibernatesheets` | `HibernateSheets` (client), `SheetProperties`, `Worksheet`, `Batch`/`Ref`/`BatchResult`, `RetryPolicy`, `NetworkCall`/`NetworkCallResult` |
+| `.cache` | `SqliteResponseCache`, `CacheExpiry`, `CacheStrategy` |
 | `.query` | `Filters` (static factory), `Filter`, `Sort` |
 | `.spec` | Operation builders and the `Operation` record |
 | `.result` | `Row`, `RowsResult`, `ColumnsResult`, `AddColumnsResult`, `ClearResult`, `WorksheetCreated` |
@@ -183,6 +209,195 @@ not enforce key uniqueness.
 
 ---
 
+## Per-entity configuration: `SheetProperties`
+
+`SheetProperties` puts every setting for one worksheet in one immutable object. An entity class
+declares it as a constant, so the class itself says where its data lives and how it is fetched:
+
+```java
+public class Employee {
+
+    public static final SheetProperties PROPERTIES = SheetProperties.builder()
+            // where
+            .scriptUrl("https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec")
+            .dbSheetUrl("https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit")  // URL or bare id
+            .tabName("Employees")
+            .timeZone(ZoneId.of("Asia/Kolkata"))
+            // how
+            .retryPolicy(RetryPolicy.defaults())
+            .connectTimeout(Duration.ofSeconds(10))
+            .requestTimeout(Duration.ofSeconds(120))
+            .accessToken(() -> credentials.getAccessToken())          // restricted deployments only
+            // hooks
+            .preNetworkCall(call -> log.debug("-> {} attempt {}", call.requestId(), call.attempt()))
+            .postNetworkCall(result -> metrics.record("sheets.call", result.elapsed()))
+            // caching (see "Response cache")
+            .shallCache(true)
+            .cacheStrategy(CacheStrategy.CACHE_FIRST)
+            .cacheExpiry(CacheExpiry.ttlMinutes(30)
+                    .or(CacheExpiry.dailyAt(LocalTime.of(1, 0), LocalTime.of(15, 0))))
+            .build();
+
+    public static Repository<Employee> repository() {
+        return PROPERTIES.repository(Employee.class);
+    }
+
+    @SheetKey @JsonProperty("EmployeeId") public String employeeId;
+    @JsonProperty("Name")                 public String name;
+    ...
+}
+```
+
+| Setting | Default | Notes |
+|---|---|---|
+| `scriptUrl` | — (required) | The engine's `/exec` URL. Or `transport(...)` to replace HTTP entirely (tests). |
+| `dbSheetUrl` | — (required) | Full spreadsheet URL or just its id. |
+| `tabName` | entity's `@SheetTable` / class name | Worksheet name. |
+| `timeZone` | UTC | The spreadsheet's time zone, for date conversion. |
+| `retryPolicy` | `RetryPolicy.defaults()` | See [Retries](#retries). |
+| `connectTimeout` / `requestTimeout` | 10 s / 90 s | |
+| `accessToken` | none | OAuth token supplier. |
+| `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
+| `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db` | See [Response cache](#response-cache). |
+
+What you get from it:
+
+```java
+Employee.repository().findById("E001");            // Repository<T> on the configured tab
+Employee.PROPERTIES.worksheet().select().fetch();  // the fluent Worksheet API
+Employee.PROPERTIES.client();                      // the underlying HibernateSheets client
+```
+
+The client is built on first use and shared by everything created from the same `SheetProperties`.
+To share connection settings between entities, define a base and derive from it with `toBuilder()`
+(the base is not modified):
+
+```java
+public static final SheetProperties BASE = SheetProperties.builder()
+        .scriptUrl(ENDPOINT).dbSheetUrl(SPREADSHEET_ID).timeZone(ZONE).build();
+
+// in Employee
+public static final SheetProperties PROPERTIES = BASE.toBuilder().tabName("Employees").build();
+// in Department
+public static final SheetProperties PROPERTIES = BASE.toBuilder().tabName("Departments").build();
+```
+
+`@SheetTable` + `db.repository(Entity.class)` keep working; `SheetProperties` is the alternative for
+when each entity needs its own settings.
+
+---
+
+## Network hooks
+
+Pre- and post-network-call actions run around **every HTTP attempt**, retries included, in the order
+they were registered. Use them for logging, metrics, tracing or refreshing state before a call.
+
+```java
+SheetProperties.builder()
+        ...
+        .preNetworkCall(call -> {
+            // NetworkCall: requestId(), requestBody(), attempt() (1-based; > 1 on retries)
+            log.info("sending {} (attempt {})", call.requestId(), call.attempt());
+        })
+        .postNetworkCall(result -> {
+            // NetworkCallResult: call(), responseBody(), failure(), elapsed(), succeeded()
+            if (!result.succeeded()) {
+                log.warn("{} failed after {} ms", result.call().requestId(), result.elapsed().toMillis(),
+                        result.failure());
+            }
+        })
+        .build();
+```
+
+- Post actions run whether the attempt succeeded or failed; exactly one of `responseBody()` /
+  `failure()` is set.
+- A retried request keeps its `requestId`; only `attempt()` changes.
+- Reads served from the cache make no network call, so the hooks do not run for them.
+- The same hooks are available on `HibernateSheets.builder()` as `preNetworkCall` / `postNetworkCall`.
+
+---
+
+## Response cache
+
+Replies to read-only requests can be cached in a local SQLite database and reused, so repeated
+queries don't go to Apps Script (which is slow and quota-limited).
+
+```java
+SheetProperties.builder()
+        ...
+        .shallCache(true)
+        .cacheStrategy(CacheStrategy.CACHE_FIRST)
+        .cacheExpiry(CacheExpiry.ttlMinutes(30))
+        .cacheFile(Path.of("/var/cache/myapp/sheets.db"))   // optional
+        .build();
+```
+
+### What is cached
+
+- Only requests made entirely of reads — SELECT and column lookups (`columns()`). The key is the
+  request itself (worksheet, filters, sort, columns, limit, offset), so different queries are cached
+  separately.
+- The engine's reply is stored and mapped to `Row`s / POJOs exactly like a live reply, so typed
+  getters, entity mapping and time-zone handling behave the same.
+- Engine errors are never cached.
+- The database survives restarts; one SQLite connection per file is shared inside a JVM, and several
+  processes can use the same file.
+
+### Expiry
+
+`CacheExpiry` decides how long a cached reply stays fresh. Combine rules with `or`; the earliest wins.
+
+```java
+CacheExpiry.ttlMinutes(30)                                       // 30 minutes after caching
+CacheExpiry.ttl(Duration.ofHours(2))
+CacheExpiry.dailyAt(LocalTime.of(1, 0), LocalTime.of(15, 0))     // next 1:00 AM or 3:00 PM
+CacheExpiry.dailyAt(ZoneId.of("Asia/Kolkata"), LocalTime.of(1, 0))
+CacheExpiry.ttlMinutes(30).or(CacheExpiry.dailyAt(LocalTime.of(1, 0), LocalTime.of(15, 0)))
+cachedAt -> cachedAt.plus(5, ChronoUnit.MINUTES)                  // or any lambda
+```
+
+`dailyAt` uses the machine's time zone unless you pass one. A reply cached exactly at a boundary
+(e.g. 3:00 PM) expires at the next one.
+
+### Strategies
+
+| `CacheStrategy` | Behaviour |
+|---|---|
+| `CACHE_FIRST` (default) | Fresh cached reply → returned with no network call. Missing or expired → fetched and cached. |
+| `NETWORK_FIRST` | Always fetches and refreshes the cache. If the network fails (transport error, timeout, HTTP 5xx/429, quota/lock errors), returns the last cached reply — **even an expired one**. Engine errors such as an unknown column are still thrown. |
+
+### Keeping the cache correct
+
+- Any write (insert, update, upsert, delete, clone, clear, add columns) made through a client with
+  the cache enabled **invalidates every cached query on that worksheet**, even if the write fails
+  (a timed-out write may still have been saved). Other worksheets are untouched.
+- Clients sharing the same cache file see each other's invalidations.
+- Changes made **outside** — in the Sheets UI, by Apps Script triggers, or by a client not using
+  this cache file — are only picked up when entries expire. Invalidate by hand when you know the
+  sheet changed:
+
+```java
+SqliteResponseCache cache = Employee.PROPERTIES.cache().orElseThrow();
+cache.invalidate(spreadsheetId, "Employees");   // drop cached queries for one worksheet
+cache.clear();                                   // drop everything
+cache.purgeExpired(Instant.now());               // reclaim space (NETWORK_FIRST loses its fallback)
+```
+
+- If the cache itself fails (disk full, file locked), the problem is logged and the request goes to
+  the network as usual; caching never fails a request.
+
+Without `SheetProperties`, attach a cache to a client directly:
+
+```java
+HibernateSheets db = HibernateSheets.builder()
+        .endpoint(...)
+        .cache(SqliteResponseCache.open(Path.of("sheets.db")), CacheStrategy.CACHE_FIRST,
+               CacheExpiry.ttlMinutes(10))
+        .build();
+```
+
+---
+
 ## Deployment, auth and errors
 
 - **Endpoint**: the `/exec` URL of the web app deployment (your `deploy.sh` prints it).
@@ -236,8 +451,13 @@ These are in the Apps Script code, not the SDK. The SDK works around (1) and gua
 ## Building and testing
 
 ```bash
-mvn test       # 32 unit tests, no network: request contract, response parsing,
-               # batching, retries, entity mapping, and the HTTP redirect flow
-               # against an in-process server
+mvn test       # 52 unit tests, no network: request contract, response parsing,
+               # batching, retries, entity mapping, SheetProperties and network hooks,
+               # cache expiry/strategies/invalidation against a temp SQLite file,
+               # and the HTTP redirect flow against an in-process server
 mvn package
 ```
+
+Integration tests (`*IT`) hit a live deployment and are run explicitly, e.g. `mvn test -Dtest='*IT'`.
+`Employee` in the integration tests is the reference example of an entity with its own
+`SheetProperties`, network hooks and caching.

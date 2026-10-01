@@ -1,7 +1,12 @@
 package io.github.prasunmondal.hibernatesheets;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
+import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
+import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
+import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache.SheetRef;
 import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
+import io.github.prasunmondal.hibernatesheets.exception.TransportException;
 import io.github.prasunmondal.hibernatesheets.internal.Json;
 import io.github.prasunmondal.hibernatesheets.internal.RequestSerializer;
 import io.github.prasunmondal.hibernatesheets.internal.ResponseParser;
@@ -13,12 +18,21 @@ import io.github.prasunmondal.hibernatesheets.transport.HttpTransport;
 import io.github.prasunmondal.hibernatesheets.transport.Transport;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -51,9 +65,21 @@ public final class HibernateSheets {
     private final RetryPolicy retryPolicy;
     private final RequestSerializer serializer;
     private final ResponseParser parser;
+    private final List<Consumer<NetworkCall>> preNetworkCallActions;
+    private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
+    private final SqliteResponseCache cache;
+    private final CacheStrategy cacheStrategy;
+    private final CacheExpiry cacheExpiry;
+    private final Clock clock;
 
     private HibernateSheets(Builder b) {
         this.zone = b.zone;
+        this.cache = b.cache;
+        this.cacheStrategy = b.cacheStrategy;
+        this.cacheExpiry = b.cacheExpiry;
+        this.clock = b.clock;
+        this.preNetworkCallActions = List.copyOf(b.preNetworkCallActions);
+        this.postNetworkCallActions = List.copyOf(b.postNetworkCallActions);
         this.mapper = Json.mapper(b.objectMapper, b.zone);
         this.defaultSpreadsheetId = b.defaultSpreadsheetId;
         this.retryPolicy = b.retryPolicy;
@@ -100,7 +126,8 @@ public final class HibernateSheets {
 
     /**
      * Low-level: sends operations as one request and returns the parsed response.
-     * Applies the retry policy (reads only, unless configured otherwise).
+     * Applies the retry policy (reads only, unless configured otherwise). With a cache configured,
+     * read-only requests go through it and writes invalidate the worksheets they touch.
      */
     public ExecutionResponse execute(List<Operation> operations) {
         Objects.requireNonNull(operations, "operations");
@@ -108,15 +135,91 @@ public final class HibernateSheets {
             throw new IllegalArgumentException("At least one operation is required");
         }
         boolean readOnly = operations.stream().allMatch(op -> op.type().isReadOnly());
+        if (cache == null) {
+            return remote(operations, readOnly).parsed();
+        }
+        if (readOnly) {
+            return executeCached(operations);
+        }
+        try {
+            return remote(operations, false).parsed();
+        } finally {
+            // Also on failure: a timed-out write may still have been committed by the engine.
+            operations.stream()
+                    .filter(op -> !op.type().isReadOnly())
+                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet()))
+                    .distinct()
+                    .forEach(s -> quietly("invalidate", () -> cache.invalidate(s.spreadsheetId(), s.worksheet())));
+        }
+    }
+
+    /** The response cache, if one is configured. */
+    public Optional<SqliteResponseCache> cache() {
+        return Optional.ofNullable(cache);
+    }
+
+    private ExecutionResponse executeCached(List<Operation> operations) {
+        String key = cacheKey(operations);
+        Optional<SqliteResponseCache.Entry> read = quietly("read", () -> cache.get(key));
+        Optional<SqliteResponseCache.Entry> cached = read != null ? read : Optional.empty();
+        if (cacheStrategy == CacheStrategy.CACHE_FIRST && cached.isPresent() && cached.get().isFresh(clock.instant())) {
+            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
+            return parser.parse(cached.get().reply(), operations);
+        }
+        try {
+            Reply reply = remote(operations, true);
+            Instant cachedAt = clock.instant();
+            List<SheetRef> sheets = operations.stream()
+                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().toList();
+            quietly("write", () -> {
+                cache.put(key, reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
+                return null;
+            });
+            return reply.parsed();
+        } catch (HibernateSheetsException e) {
+            boolean networkFailure = e instanceof TransportException || e.isRetryable();
+            if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && cached.isPresent()) {
+                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request failed, serving cached reply from "
+                        + cached.get().cachedAt() + ": " + e.getMessage());
+                return parser.parse(cached.get().reply(), operations);
+            }
+            throw e;
+        }
+    }
+
+    private String cacheKey(List<Operation> operations) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(serializer.serialize("", operations).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Cache problems are logged and never fail the request; the network is the source of truth. */
+    private <V> V quietly(String what, Supplier<V> work) {
+        try {
+            return work.get();
+        } catch (HibernateSheetsException e) {
+            LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets cache " + what + " failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private record Reply(String body, ExecutionResponse parsed) {
+    }
+
+    private Reply remote(List<Operation> operations, boolean readOnly) {
         String requestId = UUID.randomUUID().toString();
         String body = serializer.serialize(requestId, operations);
 
         for (int attempt = 1; ; attempt++) {
             try {
                 LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets request " + requestId + ": " + body);
-                String reply = transport.send(body);
+                String reply = send(new NetworkCall(requestId, body, attempt));
                 LOG.log(System.Logger.Level.TRACE, () -> "hibernate.sheets reply " + requestId + ": " + reply);
-                return parser.parse(reply, operations);
+                return new Reply(reply, parser.parse(reply, operations));
             } catch (HibernateSheetsException e) {
                 if (!retryPolicy.shouldRetry(e, attempt, readOnly)) {
                     throw e;
@@ -149,6 +252,24 @@ public final class HibernateSheets {
         return defaultSpreadsheetId;
     }
 
+    private String send(NetworkCall call) {
+        preNetworkCallActions.forEach(action -> action.accept(call));
+        long start = System.nanoTime();
+        String reply = null;
+        RuntimeException failure = null;
+        try {
+            reply = transport.send(call.requestBody());
+            return reply;
+        } catch (RuntimeException e) {
+            failure = e;
+            throw e;
+        } finally {
+            NetworkCallResult result = new NetworkCallResult(call, reply, failure,
+                    Duration.ofNanos(System.nanoTime() - start));
+            postNetworkCallActions.forEach(action -> action.accept(result));
+        }
+    }
+
     private static void sleep(Duration d) {
         if (d.isZero() || d.isNegative()) {
             return;
@@ -171,8 +292,27 @@ public final class HibernateSheets {
         private Duration connectTimeout = Duration.ofSeconds(10);
         private Duration requestTimeout = Duration.ofSeconds(90);
         private Supplier<String> accessToken;
+        private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
+        private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
+        private SqliteResponseCache cache;
+        private CacheStrategy cacheStrategy;
+        private CacheExpiry cacheExpiry;
+        private Clock clock = Clock.systemUTC();
 
         private Builder() {
+        }
+
+        /** Cache read-only requests in {@code cache}; writes through this client invalidate affected worksheets. */
+        public Builder cache(SqliteResponseCache cache, CacheStrategy strategy, CacheExpiry expiry) {
+            this.cache = Objects.requireNonNull(cache, "cache");
+            this.cacheStrategy = Objects.requireNonNull(strategy, "strategy");
+            this.cacheExpiry = Objects.requireNonNull(expiry, "expiry");
+            return this;
+        }
+
+        Builder clock(Clock clock) {
+            this.clock = Objects.requireNonNull(clock);
+            return this;
         }
 
         /** The web app's {@code /exec} URL. */
@@ -229,6 +369,18 @@ public final class HibernateSheets {
         /** OAuth access token supplier for deployments restricted to Google accounts. */
         public Builder accessToken(Supplier<String> tokenSupplier) {
             this.accessToken = tokenSupplier;
+            return this;
+        }
+
+        /** Runs before every HTTP attempt (including retries), in registration order. */
+        public Builder preNetworkCall(Consumer<NetworkCall> action) {
+            this.preNetworkCallActions.add(Objects.requireNonNull(action));
+            return this;
+        }
+
+        /** Runs after every HTTP attempt, whether it succeeded or failed, in registration order. */
+        public Builder postNetworkCall(Consumer<NetworkCallResult> action) {
+            this.postNetworkCallActions.add(Objects.requireNonNull(action));
             return this;
         }
 
