@@ -1,5 +1,7 @@
 package io.github.prasunmondal.hibernatesheets.integrationTests;
 
+import io.github.prasunmondal.hibernatesheets.APIRequestsQueue;
+import io.github.prasunmondal.hibernatesheets.Queued;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.query.Sort;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +35,27 @@ class RepositoryIT {
         TestData.resetAll();
         employees = Employee.repository();
         departments = ItConfig.db().repository(Department.class);
+    }
+
+    @Test
+    @DisplayName("APIRequestsQueue: reads and a write across two entities, sent only on execute()")
+    void queuedRequests() {
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        Queued<List<Employee>> all = employees.requests().findAll().queue(reqQ);
+        Queued<Optional<Department>> eng = departments.requests().findById("ENG").queue(reqQ);
+        Queued<Employee> saved = employees.requests()
+                .save(Employee.of("E011", "Queued Hire", "Engineering", 90000, LocalDate.of(2026, 7, 1)))
+                .queue(reqQ);
+        Queued<Boolean> exists = employees.requests().existsById("E011").queue(reqQ);
+        assertEquals(EMPLOYEE_COUNT, employeeCount());          // nothing sent yet
+
+        reqQ.execute();
+
+        assertEquals(EMPLOYEE_COUNT, all.get().size());         // read before the save in the same call
+        assertEquals("Engineering", eng.get().orElseThrow().deptName());
+        assertEquals("Queued Hire", saved.get().name);
+        assertTrue(exists.get());                               // read after the save sees it
+        assertEquals(EMPLOYEE_COUNT + 1, employeeCount());
     }
 
     @Test

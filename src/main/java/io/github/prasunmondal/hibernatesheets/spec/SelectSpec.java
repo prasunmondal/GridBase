@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.SheetRequest;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.result.Row;
 import io.github.prasunmondal.hibernatesheets.result.RowsResult;
@@ -54,11 +55,25 @@ public final class SelectSpec extends FilterSpec<SelectSpec> {
 
     /** Fetches with {@code limit 1} (the spec itself is not modified). */
     public Optional<Row> fetchFirst() {
+        return firstRequest().execute();
+    }
+
+    /** {@link #fetch(Class)} as a not-yet-sent request, e.g. to {@code queue(...)} it. */
+    public <T> SheetRequest<List<T>> request(Class<T> type) {
+        return request().map(r -> r.as(type));
+    }
+
+    /** {@link #fetchFirst()} as a not-yet-sent request. */
+    public SheetRequest<Optional<Row>> firstRequest() {
         Operation op = toOperation();
         if (op.limit() != 0) {
             op = op.withLimit(1);
         }
-        return worksheet.client().executeOne(op, RowsResult.class).first();
+        return SheetRequest.of(worksheet.client(), List.of(op), r -> ((RowsResult) r.results().get(0)).first());
+    }
+
+    public <T> SheetRequest<Optional<T>> firstRequest(Class<T> type) {
+        return firstRequest().map(row -> row.map(r -> r.as(type)));
     }
 
     public <T> Optional<T> fetchFirst(Class<T> type) {

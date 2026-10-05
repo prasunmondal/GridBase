@@ -1,0 +1,30 @@
+package io.github.prasunmondal.hibernatesheets.exception;
+
+import java.util.List;
+
+/**
+ * Some requests in an {@code APIRequestsQueue} failed. The others completed normally; read each one's
+ * result or failure from its {@code Queued} handle. The first failure is the cause, the rest are
+ * attached as suppressed exceptions.
+ */
+public class QueueExecutionException extends HibernateSheetsException {
+
+    private final List<RuntimeException> failures;
+    private final int requestCount;
+
+    public QueueExecutionException(List<RuntimeException> failures, int requestCount) {
+        super(failures.size() + " of " + requestCount + " queued requests failed; first: "
+                + failures.get(0).getMessage(), failures.get(0), false);
+        this.failures = List.copyOf(failures);
+        this.requestCount = requestCount;
+        failures.stream().skip(1).forEach(this::addSuppressed);
+    }
+
+    public List<RuntimeException> failures() {
+        return failures;
+    }
+
+    public int requestCount() {
+        return requestCount;
+    }
+}

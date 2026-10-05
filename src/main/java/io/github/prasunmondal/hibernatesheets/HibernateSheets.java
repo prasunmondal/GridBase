@@ -6,6 +6,7 @@ import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
 import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
 import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache.SheetRef;
 import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
+import io.github.prasunmondal.hibernatesheets.exception.ServerException;
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
 import io.github.prasunmondal.hibernatesheets.internal.Json;
 import io.github.prasunmondal.hibernatesheets.internal.RequestSerializer;
@@ -14,6 +15,7 @@ import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.result.ExecutionResponse;
 import io.github.prasunmondal.hibernatesheets.result.OperationResult;
 import io.github.prasunmondal.hibernatesheets.spec.Operation;
+import io.github.prasunmondal.hibernatesheets.spec.OperationType;
 import io.github.prasunmondal.hibernatesheets.transport.HttpTransport;
 import io.github.prasunmondal.hibernatesheets.transport.Transport;
 
@@ -27,6 +29,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
@@ -109,7 +112,7 @@ public final class HibernateSheets {
                     .build();
         }
         this.queue = b.queueWindow == null ? null
-                : new RequestQueue(b.queueWindow, b.queueMaxOperations, this::remote, this::slice, ASYNC);
+                : new RequestQueue(b.queueWindow, b.queueMaxOperations, this::sendCombined, ASYNC);
     }
 
     public static Builder builder() {
@@ -170,63 +173,211 @@ public final class HibernateSheets {
             throw new IllegalArgumentException("At least one operation is required");
         }
         List<Operation> ops = List.copyOf(operations);
-        boolean readOnly = ops.stream().allMatch(op -> op.type().isReadOnly());
+        boolean readOnly = isReadOnly(ops);
         if (cache == null) {
             return fetch(ops, readOnly, async).thenApply(Reply::parsed);
         }
-        if (readOnly) {
-            return executeCached(ops, async);
+        if (!readOnly) {
+            return fetch(ops, false, async)
+                    .whenComplete((reply, failure) -> invalidateWrites(ops))
+                    .thenApply(Reply::parsed);
         }
-        return fetch(ops, false, async)
-                // Also on failure: a timed-out write may still have been committed by the engine.
-                .whenComplete((reply, failure) -> ops.stream()
-                        .filter(op -> !op.type().isReadOnly())
-                        .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet()))
-                        .distinct()
-                        .forEach(s -> quietly("invalidate", () -> cache.invalidate(s.spreadsheetId(), s.worksheet()))))
-                .thenApply(Reply::parsed);
+        CachedRead read = lookup(ops);
+        if (read.hit()) {
+            return now(() -> parser.parse(read.entry().orElseThrow().reply(), ops));
+        }
+        return fetch(ops, true, async).handle((reply, failure) -> finishRead(read, reply, failure));
+    }
+
+    /** One request's outcome when several are executed together: exactly one field is non-null. */
+    record Outcome<T>(T value, RuntimeException failure) {
+
+        static <T> Outcome<T> of(Supplier<T> work) {
+            try {
+                return new Outcome<>(work.get(), null);
+            } catch (RuntimeException e) {
+                return new Outcome<>(null, e);
+            }
+        }
+    }
+
+    /**
+     * Executes several independent requests with as few HTTP calls as possible: fresh cache hits are
+     * answered locally, the rest are combined (at most {@code maxOperationsPerCall} operations per
+     * call, schema operations alone, order kept). Each request gets its own outcome.
+     */
+    List<Outcome<ExecutionResponse>> executeTogether(List<List<Operation>> requests, int maxOperationsPerCall) {
+        int n = requests.size();
+        List<Outcome<ExecutionResponse>> outcomes = new ArrayList<>(Collections.nCopies(n, null));
+        CachedRead[] reads = new CachedRead[n];
+        List<Integer> toSend = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            List<Operation> ops = requests.get(i);
+            if (cache != null && isReadOnly(ops)) {
+                CachedRead read = lookup(ops);
+                reads[i] = read;
+                if (read.hit()) {
+                    outcomes.set(i, Outcome.of(() -> parser.parse(read.entry().orElseThrow().reply(), ops)));
+                    continue;
+                }
+            }
+            toSend.add(i);
+        }
+
+        List<List<Integer>> calls = new ArrayList<>();
+        List<Integer> current = new ArrayList<>();
+        int currentOps = 0;
+        for (int i : toSend) {
+            List<Operation> ops = requests.get(i);
+            boolean alone = hasSchemaOperation(ops) || ops.size() >= maxOperationsPerCall;
+            if (!current.isEmpty() && (alone || currentOps + ops.size() > maxOperationsPerCall)) {
+                calls.add(current);
+                current = new ArrayList<>();
+                currentOps = 0;
+            }
+            if (alone) {
+                calls.add(List.of(i));
+            } else {
+                current.add(i);
+                currentOps += ops.size();
+            }
+        }
+        if (!current.isEmpty()) {
+            calls.add(current);
+        }
+
+        for (List<Integer> call : calls) {
+            List<Outcome<Reply>> replies = sendCombined(call.stream().map(requests::get).toList());
+            for (int k = 0; k < call.size(); k++) {
+                int i = call.get(k);
+                Outcome<Reply> reply = replies.get(k);
+                List<Operation> ops = requests.get(i);
+                if (cache != null && !isReadOnly(ops)) {
+                    invalidateWrites(ops);
+                }
+                if (reads[i] != null) {
+                    CachedRead read = reads[i];
+                    outcomes.set(i, Outcome.of(() -> finishRead(read, reply.value(), reply.failure())));
+                } else if (reply.failure() != null) {
+                    outcomes.set(i, new Outcome<>(null, reply.failure()));
+                } else {
+                    outcomes.set(i, new Outcome<>(reply.value().parsed(), null));
+                }
+            }
+        }
+        return outcomes.stream()
+                .map(o -> o.failure() == null ? o : new Outcome<ExecutionResponse>(null, rethrowable(o.failure())))
+                .toList();
+    }
+
+    /**
+     * Sends several requests as one HTTP call and splits the reply per request. If the engine rejects
+     * the combined call it has written no row changes, so each request is re-sent alone and only the
+     * faulty one fails. Transport failures fail them all.
+     */
+    List<Outcome<Reply>> sendCombined(List<List<Operation>> requests) {
+        if (requests.size() == 1) {
+            List<Operation> only = requests.get(0);
+            return List.of(Outcome.of(() -> remote(only, isReadOnly(only))));
+        }
+        List<Operation> all = new ArrayList<>();
+        requests.forEach(all::addAll);
+        Reply combined;
+        try {
+            combined = remote(all, isReadOnly(all));
+        } catch (ServerException e) {
+            if (e.isRetryable()) {
+                return requests.stream().map(r -> new Outcome<Reply>(null, e)).toList();
+            }
+            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets combined call rejected ("
+                    + e.getMessage() + "); re-sending " + requests.size() + " requests individually");
+            return requests.stream().map(r -> Outcome.of(() -> remote(r, isReadOnly(r)))).toList();
+        } catch (RuntimeException e) {
+            return requests.stream().map(r -> new Outcome<Reply>(null, e)).toList();
+        }
+        List<Outcome<Reply>> out = new ArrayList<>();
+        int offset = 0;
+        for (List<Operation> r : requests) {
+            int from = offset;
+            out.add(Outcome.of(() -> slice(combined, from, r)));
+            offset += r.size();
+        }
+        return out;
+    }
+
+    static boolean isReadOnly(List<Operation> operations) {
+        return operations.stream().allMatch(op -> op.type().isReadOnly());
+    }
+
+    /** Applied by the engine immediately rather than at commit, so never re-sent as part of a retry-alone. */
+    static boolean hasSchemaOperation(List<Operation> operations) {
+        return operations.stream().anyMatch(op -> op.type() == OperationType.CREATE_WORKSHEET
+                || op.type() == OperationType.CLEAR_WORKSHEET || op.type() == OperationType.ADD_COLUMNS);
+    }
+
+    private record CachedRead(List<Operation> operations, String key,
+                              Optional<SqliteResponseCache.Entry> entry, boolean hit) {
+    }
+
+    private CachedRead lookup(List<Operation> operations) {
+        String key = cacheKey(operations);
+        Optional<SqliteResponseCache.Entry> read = quietly("read", () -> cache.get(key));
+        Optional<SqliteResponseCache.Entry> entry = read != null ? read : Optional.empty();
+        boolean hit = cacheStrategy == CacheStrategy.CACHE_FIRST
+                && entry.isPresent() && entry.get().isFresh(clock.instant());
+        if (hit) {
+            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
+        }
+        return new CachedRead(operations, key, entry, hit);
+    }
+
+    /** Stores a successful read, or falls back to a stale entry (NETWORK_FIRST) when the network failed. */
+    private ExecutionResponse finishRead(CachedRead read, Reply reply, Throwable failure) {
+        if (failure == null) {
+            Instant cachedAt = clock.instant();
+            List<SheetRef> sheets = read.operations().stream()
+                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().toList();
+            quietly("write", () -> {
+                cache.put(read.key(), reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
+                return null;
+            });
+            return reply.parsed();
+        }
+        Throwable cause = unwrap(failure);
+        boolean networkFailure = cause instanceof TransportException
+                || (cause instanceof HibernateSheetsException e && e.isRetryable());
+        if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && read.entry().isPresent()) {
+            SqliteResponseCache.Entry stale = read.entry().get();
+            LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request failed, serving cached reply from "
+                    + stale.cachedAt() + ": " + cause.getMessage());
+            return parser.parse(stale.reply(), read.operations());
+        }
+        throw rethrowable(cause);
+    }
+
+    /** Also on failure: a timed-out write may still have been committed by the engine. */
+    private void invalidateWrites(List<Operation> operations) {
+        operations.stream()
+                .filter(op -> !op.type().isReadOnly())
+                .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet()))
+                .distinct()
+                .forEach(s -> quietly("invalidate", () -> cache.invalidate(s.spreadsheetId(), s.worksheet())));
+    }
+
+    private static RuntimeException rethrowable(Throwable t) {
+        Throwable cause = unwrap(t);
+        return cause instanceof RuntimeException r ? r : new CompletionException(cause);
     }
 
     /** Through the queue when there is one; otherwise on the caller's thread (sync) or a pool thread (async). */
     private CompletableFuture<Reply> fetch(List<Operation> operations, boolean readOnly, boolean async) {
         if (queue != null && queue.accepts(operations)) {
-            return queue.submit(operations, readOnly);
+            return queue.submit(operations);
         }
         if (async) {
             return CompletableFuture.supplyAsync(() -> remote(operations, readOnly), ASYNC);
         }
         return now(() -> remote(operations, readOnly));
-    }
-
-    private CompletableFuture<ExecutionResponse> executeCached(List<Operation> operations, boolean async) {
-        String key = cacheKey(operations);
-        Optional<SqliteResponseCache.Entry> read = quietly("read", () -> cache.get(key));
-        Optional<SqliteResponseCache.Entry> cached = read != null ? read : Optional.empty();
-        if (cacheStrategy == CacheStrategy.CACHE_FIRST && cached.isPresent() && cached.get().isFresh(clock.instant())) {
-            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
-            return now(() -> parser.parse(cached.get().reply(), operations));
-        }
-        return fetch(operations, true, async).handle((reply, failure) -> {
-            if (failure == null) {
-                Instant cachedAt = clock.instant();
-                List<SheetRef> sheets = operations.stream()
-                        .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().toList();
-                quietly("write", () -> {
-                    cache.put(key, reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
-                    return null;
-                });
-                return reply.parsed();
-            }
-            Throwable cause = unwrap(failure);
-            boolean networkFailure = cause instanceof TransportException
-                    || (cause instanceof HibernateSheetsException e && e.isRetryable());
-            if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && cached.isPresent()) {
-                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request failed, serving cached reply from "
-                        + cached.get().cachedAt() + ": " + cause.getMessage());
-                return parser.parse(cached.get().reply(), operations);
-            }
-            throw cause instanceof RuntimeException r ? r : new CompletionException(cause);
-        });
     }
 
     private Reply slice(Reply combined, int offset, List<Operation> operations) {

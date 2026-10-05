@@ -208,6 +208,9 @@ Records work too (`public record Product(@SheetKey String sku, String title) {}`
 Jackson property names; use `@JsonProperty("Header Text")` and `@JsonIgnore` as usual. The engine does
 not enforce key uniqueness.
 
+Every repository method also exists as a not-yet-sent request — `customers.requests().findAll()` —
+for sending several together with an [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so).
+
 ---
 
 ## Per-entity configuration: `SheetProperties`
@@ -260,7 +263,7 @@ public class Employee {
 | `accessToken` | none | OAuth token supplier. |
 | `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
 | `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db` | See [Response cache](#response-cache). |
-| `queueRequests`, `queueMaxOperations` | off, 50 | See [Request queue](#request-queue-fewer-network-calls). |
+| `queueRequests`, `queueMaxOperations` | off, 50 | See [Automatic request queue](#automatic-request-queue-time-window). For sending on demand, see [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so). |
 
 What you get from it:
 
@@ -405,11 +408,87 @@ HibernateSheets db = HibernateSheets.builder()
 
 ---
 
-## Request queue (fewer network calls)
+## Request queue: `APIRequestsQueue` (send when you say so)
 
 Every Apps Script call costs a round trip of a second or more and counts against quota. The engine
-already processes several operations per request, so the client can **queue requests made close
-together and send them as one HTTP call**, then hand each caller its own result.
+processes many operations per request, so collect what a screen or job needs, then send it all at once:
+
+```java
+APIRequestsQueue reqQ = new APIRequestsQueue();
+Queued<List<Customer>> customers  = Customer.repository().requests().findAll().queue(reqQ);
+Queued<List<Delivery>> deliveries = Delivery.repository().requests().findWhere(eq("Date", today)).queue(reqQ);
+Queued<RowsResult> logged         = auditSheet.insert(entry).queue(reqQ);
+reqQ.execute();                    // nothing was sent before this line; now one HTTP call
+
+customers.get();  deliveries.get();  logged.get().rows();
+```
+
+Nothing is sent until `execute()` — no timers, no background threads.
+
+### Building requests
+
+A `SheetRequest<T>` is a request that hasn't been sent yet. It can run on its own or be queued:
+
+```java
+SheetRequest<List<Customer>> all = Customer.repository().requests().findAll();
+all.execute();          // now, by itself
+all.executeAsync();     // now, without waiting
+all.queue(reqQ);        // later, with everything else in reqQ → Queued<List<Customer>>
+```
+
+Where they come from:
+
+| Source | Requests |
+|---|---|
+| `repository.requests()` | `findAll()`, `findWhere(...)`, `findFirstWhere(...)`, `findById(id)`, `existsById(id)`, `insert(e)`, `insertAll(list)`, `save(e)`, `saveAll(list)`, `deleteById(id)`, `delete(e)` — same results as the `Repository` methods |
+| any operation spec | `.request()` (its raw result), or shortcut `.queue(reqQ)` — inserts, updates, deletes, upserts, clones, selects, schema ops |
+| select specs | `.request(Customer.class)` → `List<Customer>`, `.firstRequest()` / `.firstRequest(Customer.class)` → `Optional` |
+| your own code | `SheetRequest.of(client, operations, mapper)`, `SheetRequest.completed(value)`, and `.map(...)` on any request |
+
+That makes it easy to write your own fetch methods that callers can either run or queue, e.g.
+
+```java
+public static SheetRequest<List<Txn>> fetchRecent() {
+    return Txn.repository().requests().findWhere(gte("Date", LocalDate.now().minusDays(7)));
+}
+
+APIRequestsQueue reqQ = new APIRequestsQueue();
+Queued<List<Txn>> recent = fetchRecent().queue(reqQ);
+Queued<List<Delivery>> today = DeliveriesToday.fetchAll().queue(reqQ);
+reqQ.execute();
+```
+
+### What `execute()` does
+
+- **Cache first.** With a cache configured, fresh cache hits are answered locally and not sent.
+  Queued reads are cached individually; queued writes invalidate their worksheets as usual.
+- **One call per client.** Everything else for the same client goes out in one HTTP call, in the
+  order it was queued. Requests on different clients (different script URL or settings) get one
+  call each. Entities whose `SheetProperties` were derived by `tabName` only share a client.
+- **Each request succeeds or fails on its own.** If the engine rejects the combined call, it has
+  written nothing; each request is then re-sent alone so only the faulty one fails. A network
+  failure fails every request in that call. A request made of several operations (`saveAll`) stays
+  all-or-nothing.
+- **Split only when needed:** `create`, `clear` and `addColumns` go in a call of their own (the engine
+  applies them immediately, so they can't be safely re-sent), and a call holds at most 100 operations
+  (`new APIRequestsQueue(maxOperationsPerCall)`). Order is kept across the split.
+- **Errors.** After every handle is completed, `execute()` throws `QueueExecutionException` if any
+  request failed (`failures()` lists them). The successful handles can still be read; `get()` on a
+  failed one throws that request's own exception.
+- **Single use.** A queue can be executed once; `get()` before `execute()` throws
+  `IllegalStateException`.
+
+`APIRequestsQueue` vs `Batch`: a `Batch` is one engine request — all-or-nothing, later operations see
+earlier ones, one client. A queue holds independent requests, isolates their failures, uses the
+cache, and can span entities and clients.
+
+---
+
+## Automatic request queue (time window)
+
+Alternatively the client can **combine requests made close together on its own**, then hand each
+caller its own result. Use this when requests come from places you can't coordinate (concurrent web
+requests, async code); use `APIRequestsQueue` when you know what to send together.
 
 ```java
 SheetProperties.builder()
@@ -532,10 +611,11 @@ Notes on the lock:
 ## Building and testing
 
 ```bash
-mvn test       # 64 unit tests, no network: request contract, response parsing,
+mvn test       # 75 unit tests, no network: request contract, response parsing,
                # batching, retries, entity mapping, SheetProperties and network hooks,
                # cache expiry/strategies/invalidation against a temp SQLite file,
-               # request queue (combining, ordering, isolation, threads),
+               # APIRequestsQueue and the automatic queue (combining, ordering,
+               # isolation, cache, threads),
                # and the HTTP redirect flow against an in-process server
 mvn package
 ```

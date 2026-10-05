@@ -1,9 +1,8 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.HibernateSheets.Outcome;
 import io.github.prasunmondal.hibernatesheets.HibernateSheets.Reply;
-import io.github.prasunmondal.hibernatesheets.exception.ServerException;
 import io.github.prasunmondal.hibernatesheets.spec.Operation;
-import io.github.prasunmondal.hibernatesheets.spec.OperationType;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -16,7 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
+import java.util.function.Function;
 
 /**
  * Collects requests for up to {@code window} and sends them to the engine as one HTTP call.
@@ -27,23 +26,12 @@ import java.util.function.Supplier;
  */
 final class RequestQueue {
 
-    private static final System.Logger LOG = System.getLogger(RequestQueue.class.getName());
-
-    interface Sender {
-        Reply send(List<Operation> operations, boolean readOnly);
-    }
-
-    interface Slicer {
-        Reply slice(Reply combined, int offset, List<Operation> operations);
-    }
-
-    private record Pending(List<Operation> operations, boolean readOnly, CompletableFuture<Reply> future) {
+    private record Pending(List<Operation> operations, CompletableFuture<Reply> future) {
     }
 
     private final Duration window;
     private final int maxOperations;
-    private final Sender sender;
-    private final Slicer slicer;
+    private final Function<List<List<Operation>>, List<Outcome<Reply>>> sendCombined;
     private final Executor callbacks;
     private final ScheduledExecutorService worker;
     private volatile Thread workerThread;
@@ -52,7 +40,8 @@ final class RequestQueue {
     private int pendingOperations;
     private boolean flushScheduled;
 
-    RequestQueue(Duration window, int maxOperations, Sender sender, Slicer slicer, Executor callbacks) {
+    RequestQueue(Duration window, int maxOperations,
+                 Function<List<List<Operation>>, List<Outcome<Reply>>> sendCombined, Executor callbacks) {
         if (window.isNegative()) {
             throw new IllegalArgumentException("window must not be negative");
         }
@@ -61,8 +50,7 @@ final class RequestQueue {
         }
         this.window = window;
         this.maxOperations = maxOperations;
-        this.sender = Objects.requireNonNull(sender);
-        this.slicer = Objects.requireNonNull(slicer);
+        this.sendCombined = Objects.requireNonNull(sendCombined);
         this.callbacks = Objects.requireNonNull(callbacks);
         this.worker = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "hibernate-sheets-queue");
@@ -79,13 +67,12 @@ final class RequestQueue {
     boolean accepts(List<Operation> operations) {
         return operations.size() <= maxOperations
                 && !Thread.currentThread().equals(workerThread)
-                && operations.stream().noneMatch(op -> op.type() == OperationType.CREATE_WORKSHEET
-                || op.type() == OperationType.CLEAR_WORKSHEET || op.type() == OperationType.ADD_COLUMNS);
+                && !HibernateSheets.hasSchemaOperation(operations);
     }
 
     /** The returned future completes on a callback thread, never on the queue thread. */
-    CompletableFuture<Reply> submit(List<Operation> operations, boolean readOnly) {
-        Pending p = new Pending(List.copyOf(operations), readOnly, new CompletableFuture<>());
+    CompletableFuture<Reply> submit(List<Operation> operations) {
+        Pending p = new Pending(List.copyOf(operations), new CompletableFuture<>());
         synchronized (this) {
             pending.add(p);
             pendingOperations += p.operations().size();
@@ -116,56 +103,21 @@ final class RequestQueue {
                 worker.execute(this::flush);
             }
         }
-        if (!chunk.isEmpty()) {
-            try {
-                dispatch(chunk);
-            } catch (Throwable t) {
-                chunk.forEach(p -> p.future().completeExceptionally(t));
-            }
-        }
-    }
-
-    private void dispatch(List<Pending> chunk) {
-        if (chunk.size() == 1) {
-            Pending p = chunk.get(0);
-            complete(p, () -> sender.send(p.operations(), p.readOnly()));
+        if (chunk.isEmpty()) {
             return;
         }
-        List<Operation> all = new ArrayList<>();
-        chunk.forEach(p -> all.addAll(p.operations()));
-        boolean readOnly = chunk.stream().allMatch(Pending::readOnly);
-        LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets sending " + chunk.size()
-                + " queued requests (" + all.size() + " operations) as one call");
-
-        Reply combined;
         try {
-            combined = sender.send(all, readOnly);
-        } catch (ServerException e) {
-            if (e.isRetryable()) {
-                chunk.forEach(p -> p.future().completeExceptionally(e));
-                return;
+            List<Outcome<Reply>> outcomes = sendCombined.apply(chunk.stream().map(Pending::operations).toList());
+            for (int i = 0; i < chunk.size(); i++) {
+                Outcome<Reply> o = outcomes.get(i);
+                if (o.failure() != null) {
+                    chunk.get(i).future().completeExceptionally(o.failure());
+                } else {
+                    chunk.get(i).future().complete(o.value());
+                }
             }
-            // The engine rejected the combined request and wrote no row changes. Re-send each request
-            // alone so one caller's bad operation fails only that caller.
-            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets combined call rejected ("
-                    + e.getMessage() + "); re-sending " + chunk.size() + " requests individually");
-            chunk.forEach(p -> complete(p, () -> sender.send(p.operations(), p.readOnly())));
-            return;
-        }
-
-        int offset = 0;
-        for (Pending p : chunk) {
-            int from = offset;
-            complete(p, () -> slicer.slice(combined, from, p.operations()));
-            offset += p.operations().size();
-        }
-    }
-
-    private static void complete(Pending p, Supplier<Reply> work) {
-        try {
-            p.future().complete(work.get());
-        } catch (RuntimeException e) {
-            p.future().completeExceptionally(e);
+        } catch (Throwable t) {
+            chunk.forEach(p -> p.future().completeExceptionally(t));
         }
     }
 }

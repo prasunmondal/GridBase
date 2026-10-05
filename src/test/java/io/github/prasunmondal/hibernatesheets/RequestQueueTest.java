@@ -176,7 +176,7 @@ class RequestQueueTest {
 
     @Test
     void schemaOperationsAndOversizedRequestsAreNotQueued() {
-        RequestQueue queue = new RequestQueue(Duration.ZERO, 2, (ops, ro) -> null, (r, o, ops) -> null, Runnable::run);
+        RequestQueue queue = new RequestQueue(Duration.ZERO, 2, requests -> List.of(), Runnable::run);
         Operation select = new Operation(OperationType.SELECT, "S", "A", List.of(), List.of(), List.of(),
                 List.of(), List.of(), List.of(), false, -1, 0);
         Operation clear = new Operation(OperationType.CLEAR_WORKSHEET, "S", "A", List.of(), List.of(), List.of(),

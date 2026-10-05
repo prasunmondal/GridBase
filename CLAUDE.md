@@ -79,7 +79,18 @@ it fails). Writes from clients **without** the same cache file are invisible unt
 sets freshness; `CacheStrategy.NETWORK_FIRST` falls back to stale entries only on transport/retryable
 errors. Cache I/O failures are logged and never fail a request.
 
-### Request queue (`RequestQueue`, package-private)
+### Explicit queue (`APIRequestsQueue`, `SheetRequest`, `Queued`)
+
+`SheetRequest<T>` = operations + client + `ExecutionResponse → T` mapper; `execute()` / `queue(q)`.
+`Repository` builds every operation as a `SheetRequest` in `Repository.Requests` and its sync methods
+just call `.execute()` — change behaviour there, not in two places. `APIRequestsQueue.execute()` groups
+requests by client and calls `HibernateSheets.executeTogether` (cache lookup per request, then
+`sendCombined` per call: split around schema ops and at `maxOperationsPerCall`). `sendCombined` is
+shared with the automatic queue: combined call → `ResponseParser.slice` per request; non-retryable
+`ServerException` → re-send each alone. Failures are per `Queued` handle; `execute()` throws
+`QueueExecutionException` afterwards if any failed.
+
+### Automatic request queue (`RequestQueue`, package-private)
 
 Opt-in via `SheetProperties.queueRequests(window)` / `HibernateSheets.Builder.requestQueue(...)`.
 `execute` is built on `submit(ops, async)` returning `CompletableFuture`s; `execute` just `await`s and
