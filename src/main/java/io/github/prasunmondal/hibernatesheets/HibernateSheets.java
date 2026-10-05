@@ -146,7 +146,7 @@ public final class HibernateSheets {
      * read-only requests go through it and writes invalidate the worksheets they touch.
      */
     public ExecutionResponse execute(List<Operation> operations) {
-        return await(submit(operations, false));
+        return await(submit(operations, false, false));
     }
 
     /**
@@ -154,7 +154,16 @@ public final class HibernateSheets {
      * close together (from any thread) are sent as one HTTP call; callbacks run on a pool thread.
      */
     public CompletableFuture<ExecutionResponse> executeAsync(List<Operation> operations) {
-        return submit(operations, true);
+        return submit(operations, true, false);
+    }
+
+    /** Reads skip the cache, go to the network, and replace the cached reply; no stale fallback. */
+    ExecutionResponse executeRefreshing(List<Operation> operations) {
+        return await(submit(operations, false, true));
+    }
+
+    CompletableFuture<ExecutionResponse> executeRefreshingAsync(List<Operation> operations) {
+        return submit(operations, true, true);
     }
 
     /** Executes one operation asynchronously; see {@link #executeAsync}. */
@@ -167,7 +176,7 @@ public final class HibernateSheets {
         return Optional.ofNullable(cache);
     }
 
-    private CompletableFuture<ExecutionResponse> submit(List<Operation> operations, boolean async) {
+    private CompletableFuture<ExecutionResponse> submit(List<Operation> operations, boolean async, boolean refresh) {
         Objects.requireNonNull(operations, "operations");
         if (operations.isEmpty()) {
             throw new IllegalArgumentException("At least one operation is required");
@@ -182,11 +191,15 @@ public final class HibernateSheets {
                     .whenComplete((reply, failure) -> invalidateWrites(ops))
                     .thenApply(Reply::parsed);
         }
-        CachedRead read = lookup(ops);
+        CachedRead read = refresh ? refreshing(ops) : lookup(ops);
         if (read.hit()) {
             return now(() -> parser.parse(read.entry().orElseThrow().reply(), ops));
         }
         return fetch(ops, true, async).handle((reply, failure) -> finishRead(read, reply, failure));
+    }
+
+    /** A request for {@link #executeTogether}; {@code forceRefresh} as in {@link #executeRefreshing}. */
+    record Planned(List<Operation> operations, boolean forceRefresh) {
     }
 
     /** One request's outcome when several are executed together: exactly one field is non-null. */
@@ -206,7 +219,8 @@ public final class HibernateSheets {
      * answered locally, the rest are combined (at most {@code maxOperationsPerCall} operations per
      * call, schema operations alone, order kept). Each request gets its own outcome.
      */
-    List<Outcome<ExecutionResponse>> executeTogether(List<List<Operation>> requests, int maxOperationsPerCall) {
+    List<Outcome<ExecutionResponse>> executeTogether(List<Planned> planned, int maxOperationsPerCall) {
+        List<List<Operation>> requests = planned.stream().map(Planned::operations).toList();
         int n = requests.size();
         List<Outcome<ExecutionResponse>> outcomes = new ArrayList<>(Collections.nCopies(n, null));
         CachedRead[] reads = new CachedRead[n];
@@ -214,7 +228,7 @@ public final class HibernateSheets {
         for (int i = 0; i < n; i++) {
             List<Operation> ops = requests.get(i);
             if (cache != null && isReadOnly(ops)) {
-                CachedRead read = lookup(ops);
+                CachedRead read = planned.get(i).forceRefresh() ? refreshing(ops) : lookup(ops);
                 reads[i] = read;
                 if (read.hit()) {
                     outcomes.set(i, Outcome.of(() -> parser.parse(read.entry().orElseThrow().reply(), ops)));
@@ -329,6 +343,11 @@ public final class HibernateSheets {
             LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
         }
         return new CachedRead(operations, key, entry, hit);
+    }
+
+    /** No cache read and nothing to fall back to; the fresh reply is still stored. */
+    private CachedRead refreshing(List<Operation> operations) {
+        return new CachedRead(operations, cacheKey(operations), Optional.empty(), false);
     }
 
     /** Stores a successful read, or falls back to a stale entry (NETWORK_FIRST) when the network failed. */
@@ -551,7 +570,8 @@ public final class HibernateSheets {
             return this;
         }
 
-        Builder clock(Clock clock) {
+        /** Clock used to decide cache freshness. Defaults to the system clock; mainly for tests. */
+        public Builder clock(Clock clock) {
             this.clock = Objects.requireNonNull(clock);
             return this;
         }

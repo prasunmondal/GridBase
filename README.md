@@ -263,6 +263,7 @@ public class Employee {
 | `accessToken` | none | OAuth token supplier. |
 | `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
 | `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db` | See [Response cache](#response-cache). |
+| `clock` | system clock | Clock used to decide cache freshness; inject one in tests to control expiry. |
 | `queueRequests`, `queueMaxOperations` | off, 50 | See [Automatic request queue](#automatic-request-queue-time-window). For sending on demand, see [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so). |
 
 What you get from it:
@@ -393,8 +394,23 @@ cache.clear();                                   // drop everything
 cache.purgeExpired(Instant.now());               // reclaim space (NETWORK_FIRST loses its fallback)
 ```
 
-- If the cache itself fails (disk full, file locked), the problem is logged and the request goes to
-  the network as usual; caching never fails a request.
+- If the cache itself fails (disk full, file locked, file can't be opened), the problem is logged and
+  the request goes to the network as usual; caching never fails a request.
+
+### Forcing a refresh
+
+To get fresh data for one read without dropping anything else, force it:
+
+```java
+Optional<Customer> c = Customer.repository().requests().findById("C-42").forceRefresh().execute();
+List<Order> open = orders.select().where(eq("status", "OPEN")).request(Order.class).forceRefresh().execute();
+```
+
+A forced read skips the cache, always goes to the network, and its reply **replaces** the cached one
+(with a new expiry), so later normal reads get the fresh data. If the network fails it throws — no
+stale fallback, even with `NETWORK_FIRST` — and the old entry is kept. Forced reads can be queued
+(`.forceRefresh().queue(reqQ)`): in a queue, normal reads that are cached are still not sent. On a
+write, or without a cache, `forceRefresh()` changes nothing.
 
 Without `SheetProperties`, attach a cache to a client directly:
 
@@ -611,14 +627,28 @@ Notes on the lock:
 ## Building and testing
 
 ```bash
-mvn test       # 75 unit tests, no network: request contract, response parsing,
+mvn test       # 162 unit tests, no network: request contract, response parsing,
                # batching, retries, entity mapping, SheetProperties and network hooks,
                # cache expiry/strategies/invalidation against a temp SQLite file,
                # APIRequestsQueue and the automatic queue (combining, ordering,
                # isolation, cache, threads),
                # and the HTTP redirect flow against an in-process server
 mvn package
+mvn test -Dtest='io.github.prasunmondal.hibernatesheets.cachingTests.*'   # just the caching suite
 ```
+
+The caching suite (`cachingTests`, 87 tests) runs the real SDK and SQLite cache against an
+in-memory fake engine (`FakeSheetsEngine`) that holds real rows and can be edited "behind the SDK's
+back", go offline, or reject requests — so tests check data freshness, not only call counts:
+
+| Class | Covers |
+|---|---|
+| `CacheModeTest` | on/off/default, cached result = network result (types, dates, blanks), what makes queries distinct, shared/separate cache files, restart persistence, hooks skipped on hits, stale-while-fresh |
+| `CacheExpiryBehaviourTest` | TTL boundary, default 10 min, daily 1:00 AM / 3:00 PM, midnight crossover, TTL-or-daily, custom rules, CACHE_FIRST vs NETWORK_FIRST after expiry, `purgeExpired` |
+| `CacheForceRefreshTest` | `forceRefresh()` bypass + update + new expiry, failure keeps the old entry, async/map/queue, manual `invalidate` / `clear`, NETWORK_FIRST |
+| `CacheInvalidationTest` | every write kind (17 variants incl. batch, async, queued), scope (worksheet / spreadsheet), failed writes, writes from other clients, read-your-own-writes, read/write order in a queue |
+| `CacheBatchingTest` | queued reads cached one by one, only misses sent, all-hit queues, failures not cached, NETWORK_FIRST offline queue, `Batch` as one entry, automatic queue, shared clients |
+| `CacheRobustnessTest` | engine errors not cached, closed or unusable cache file, 8 concurrent readers, 3,000-row replies, unicode, per-client time zones |
 
 Integration tests (`*IT`) hit a live deployment and are run explicitly, e.g. `mvn test -Dtest='*IT'`.
 `Employee` in the integration tests is the reference example of an entity with its own

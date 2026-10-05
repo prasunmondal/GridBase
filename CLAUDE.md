@@ -79,6 +79,13 @@ it fails). Writes from clients **without** the same cache file are invisible unt
 sets freshness; `CacheStrategy.NETWORK_FIRST` falls back to stale entries only on transport/retryable
 errors. Cache I/O failures are logged and never fail a request.
 
+Caching behaviour is pinned by `src/test/java/.../cachingTests` (run with
+`mvn test -Dtest='io.github.prasunmondal.hibernatesheets.cachingTests.*'`). They use
+`FakeSheetsEngine` (in-memory engine with real rows; `editDirectly`, `goOffline`,
+`failRequestsTouching`) and a `MutableClock` passed via `SheetProperties.clock(...)` — never sleep to
+test expiry. `SheetRequest.forceRefresh()` → `HibernateSheets.executeRefreshing` / `Planned.forceRefresh`:
+skip cache read, no stale fallback, store the fresh reply.
+
 ### Explicit queue (`APIRequestsQueue`, `SheetRequest`, `Queued`)
 
 `SheetRequest<T>` = operations + client + `ExecutionResponse → T` mapper; `execute()` / `queue(q)`.

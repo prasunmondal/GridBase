@@ -32,13 +32,15 @@ public final class SheetRequest<T> {
     private final List<Operation> operations;
     private final Function<ExecutionResponse, T> mapper;
     private final T constant;
+    private final boolean forceRefresh;
 
     private SheetRequest(HibernateSheets client, List<Operation> operations,
-                         Function<ExecutionResponse, T> mapper, T constant) {
+                         Function<ExecutionResponse, T> mapper, T constant, boolean forceRefresh) {
         this.client = client;
         this.operations = operations;
         this.mapper = mapper;
         this.constant = constant;
+        this.forceRefresh = forceRefresh;
     }
 
     /** Operations sent as one engine request (all-or-nothing for row changes), mapped by {@code mapper}. */
@@ -48,22 +50,41 @@ public final class SheetRequest<T> {
         if (operations.isEmpty()) {
             throw new IllegalArgumentException("At least one operation is required; use completed(...)");
         }
-        return new SheetRequest<>(client, List.copyOf(operations), Objects.requireNonNull(mapper), null);
+        return new SheetRequest<>(client, List.copyOf(operations), Objects.requireNonNull(mapper), null, false);
     }
 
     /** A request that needs no network call (e.g. saving an empty list). */
     public static <T> SheetRequest<T> completed(T value) {
-        return new SheetRequest<>(null, List.of(), null, value);
+        return new SheetRequest<>(null, List.of(), null, value, false);
+    }
+
+    /**
+     * The same request, but a read ignores any cached reply: it always goes to the network and its
+     * reply replaces the cached one, so later normal reads get the fresh data. If the network fails it
+     * throws (no stale fallback) and the old cache entry is kept. No effect without a cache, or on writes.
+     */
+    public SheetRequest<T> forceRefresh() {
+        return isCompleted() ? this : new SheetRequest<>(client, operations, mapper, null, true);
+    }
+
+    public boolean isForceRefresh() {
+        return forceRefresh;
     }
 
     /** Sends this request now (through the client's cache and request queue, if configured). */
     public T execute() {
-        return isCompleted() ? constant : mapper.apply(client.execute(operations));
+        if (isCompleted()) {
+            return constant;
+        }
+        return mapper.apply(forceRefresh ? client.executeRefreshing(operations) : client.execute(operations));
     }
 
     public CompletableFuture<T> executeAsync() {
-        return isCompleted() ? CompletableFuture.completedFuture(constant)
-                : client.executeAsync(operations).thenApply(mapper);
+        if (isCompleted()) {
+            return CompletableFuture.completedFuture(constant);
+        }
+        return (forceRefresh ? client.executeRefreshingAsync(operations) : client.executeAsync(operations))
+                .thenApply(mapper);
     }
 
     /** Adds this request to {@code queue}; the result is available after {@code queue.execute()}. */
@@ -77,7 +98,7 @@ public final class SheetRequest<T> {
         if (isCompleted()) {
             return completed(f.apply(constant));
         }
-        return new SheetRequest<>(client, operations, r -> f.apply(mapper.apply(r)), null);
+        return new SheetRequest<>(client, operations, r -> f.apply(mapper.apply(r)), null, forceRefresh);
     }
 
     public List<Operation> operations() {

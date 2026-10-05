@@ -3,10 +3,12 @@ package io.github.prasunmondal.hibernatesheets;
 import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
 import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
+import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.transport.Transport;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -49,6 +51,8 @@ public final class SheetProperties {
 
     private static final Pattern SPREADSHEET_URL = Pattern.compile("/spreadsheets/d/([a-zA-Z0-9_-]+)");
 
+    private static final System.Logger LOG = System.getLogger(SheetProperties.class.getName());
+
     private final String scriptUrl;
     private final Transport transport;
     private final String spreadsheetId;
@@ -66,6 +70,7 @@ public final class SheetProperties {
     private final Path cacheFile;
     private final Duration queueWindow;
     private final int queueMaxOperations;
+    private final Clock clock;
 
     private final ClientHolder clientHolder;
 
@@ -111,6 +116,7 @@ public final class SheetProperties {
         this.cacheFile = b.cacheFile;
         this.queueWindow = b.queueWindow;
         this.queueMaxOperations = b.queueMaxOperations;
+        this.clock = b.clock;
         this.clientHolder = b.inheritedClient != null ? b.inheritedClient : new ClientHolder();
     }
 
@@ -142,6 +148,7 @@ public final class SheetProperties {
         b.cacheFile = cacheFile;
         b.queueWindow = queueWindow;
         b.queueMaxOperations = queueMaxOperations;
+        b.clock = clock;
         b.inheritedClient = clientHolder;
         return b;
     }
@@ -238,7 +245,8 @@ public final class SheetProperties {
                 .retryPolicy(retryPolicy)
                 .connectTimeout(connectTimeout)
                 .requestTimeout(requestTimeout)
-                .accessToken(accessToken);
+                .accessToken(accessToken)
+                .clock(clock);
         if (transport != null) {
             b.transport(transport);
         } else {
@@ -247,7 +255,12 @@ public final class SheetProperties {
         preNetworkCallActions.forEach(b::preNetworkCall);
         postNetworkCallActions.forEach(b::postNetworkCall);
         if (shallCache) {
-            b.cache(SqliteResponseCache.open(cacheFile), cacheStrategy, cacheExpiry);
+            try {
+                b.cache(SqliteResponseCache.open(cacheFile), cacheStrategy, cacheExpiry);
+            } catch (HibernateSheetsException e) {
+                // Caching is an optimisation: without it every request still works.
+                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets cache disabled: " + e.getMessage());
+            }
         }
         if (queueWindow != null) {
             b.requestQueue(queueWindow, queueMaxOperations);
@@ -278,6 +291,7 @@ public final class SheetProperties {
         private Path cacheFile = SqliteResponseCache.defaultFile();
         private Duration queueWindow;
         private int queueMaxOperations = 50;
+        private Clock clock = Clock.systemUTC();
         private ClientHolder inheritedClient;
 
         private Builder() {
@@ -298,6 +312,12 @@ public final class SheetProperties {
                 throw new IllegalArgumentException("window must not be negative");
             }
             this.queueWindow = window;
+            return detached();
+        }
+
+        /** Clock used to decide cache freshness. Defaults to the system clock; mainly for tests. */
+        public Builder clock(Clock clock) {
+            this.clock = Objects.requireNonNull(clock);
             return detached();
         }
 

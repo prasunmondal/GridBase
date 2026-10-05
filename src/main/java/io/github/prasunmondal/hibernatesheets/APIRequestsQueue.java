@@ -4,7 +4,6 @@ import io.github.prasunmondal.hibernatesheets.HibernateSheets.Outcome;
 import io.github.prasunmondal.hibernatesheets.exception.QueueExecutionException;
 import io.github.prasunmondal.hibernatesheets.result.ExecutionResponse;
 import io.github.prasunmondal.hibernatesheets.result.OperationResult;
-import io.github.prasunmondal.hibernatesheets.spec.Operation;
 import io.github.prasunmondal.hibernatesheets.spec.OperationSpec;
 
 import java.util.ArrayList;
@@ -98,7 +97,9 @@ public final class APIRequestsQueue {
 
         for (Map.Entry<HibernateSheets, List<Entry<?>>> group : byClient.entrySet()) {
             List<Entry<?>> list = group.getValue();
-            List<List<Operation>> requests = list.stream().map(e -> e.request().operations()).toList();
+            List<HibernateSheets.Planned> requests = list.stream()
+                    .map(e -> new HibernateSheets.Planned(e.request().operations(), e.request().isForceRefresh()))
+                    .toList();
             List<Outcome<ExecutionResponse>> outcomes;
             try {
                 outcomes = group.getKey().executeTogether(requests, maxOperationsPerCall);
