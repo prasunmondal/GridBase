@@ -9,7 +9,7 @@ REM UPLOAD CONFIGURATION
 REM ------------------------------------------------------------
 
 REM Git project from which the bundle will be created
-set "UPLOAD_PROJECT_DIR=C:\Users\Prasun.mondal\HM\git\MBros_v3"
+set "UPLOAD_PROJECT_DIR=C:\Projects\GSheetDB"
 
 REM Branch/ref to bundle
 set "UPLOAD_BRANCH_NAME=main"
