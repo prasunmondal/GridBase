@@ -137,7 +137,6 @@
                 </executions>
             </plugin>
 
-            <!-- GPG Signatures -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-gpg-plugin</artifactId>
@@ -151,6 +150,9 @@
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <keyname>E017E18C9699E75C</keyname>
+                </configuration>
             </plugin>
 
             <!-- Maven Central -->
