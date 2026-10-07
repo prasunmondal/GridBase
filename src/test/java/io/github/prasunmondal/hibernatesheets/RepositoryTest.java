@@ -88,12 +88,11 @@ class RepositoryTest {
 
     @Test
     void deleteAllDeletesEveryRow() {
-        FakeTransport t = FakeTransport.replying("\"rowCount\":3,\"rows\":[]");
+        FakeTransport t = FakeTransport.replying("\"worksheet\":\"Customers\",\"rowsCleared\":3,\"columnsCleared\":4");
         HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();
         assertEquals(3, db.repository(Customer.class).deleteAll());
-        assertEquals("DELETE", t.lastOperation().path("type").asText());
+        assertEquals("CLEAR_WORKSHEET", t.lastOperation().path("type").asText());
         assertEquals("Customers", t.lastOperation().path("worksheet").asText());
-        assertFalse(t.lastOperation().has("where"));
     }
 
     private static List<String> fieldNames(com.fasterxml.jackson.databind.JsonNode node) {

@@ -8,6 +8,7 @@ import io.github.prasunmondal.hibernatesheets.SheetRequest;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.query.Filter;
 import io.github.prasunmondal.hibernatesheets.query.Filters;
+import io.github.prasunmondal.hibernatesheets.result.ClearResult;
 import io.github.prasunmondal.hibernatesheets.result.OperationResult;
 import io.github.prasunmondal.hibernatesheets.result.RowsResult;
 import io.github.prasunmondal.hibernatesheets.spec.Operation;
@@ -218,11 +219,12 @@ public final class Repository<T> {
         }
 
         /**
-         * Resolves to the number of rows deleted. A row op (unlike {@link Worksheet#clear()}), so it can be
-         * batched and queued, and in a batch it commits together with the other row changes.
+         * Resolves to the number of rows deleted. Sent as CLEAR_WORKSHEET ({@link Worksheet#clear()}), a
+         * schema op: the engine applies it immediately rather than at commit, so in a batch it is not undone
+         * if a later operation fails, and the automatic request queue sends it on its own.
          */
         public SheetRequest<Integer> deleteAll() {
-            return worksheet.delete().all().request().map(RowsResult::count);
+            return worksheet.clear().request().map(ClearResult::rowsCleared);
         }
     }
 
