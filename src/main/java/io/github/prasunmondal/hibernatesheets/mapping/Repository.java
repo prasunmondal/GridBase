@@ -129,6 +129,15 @@ public final class Repository<T> {
         return requests.delete(entity).execute();
     }
 
+    /**
+     * Deletes every data row; the header row is kept.
+     *
+     * @return number of rows deleted
+     */
+    public int deleteAll() {
+        return requests.deleteAll().execute();
+    }
+
     /** {@link Repository} operations that are built now and sent later. Arguments are validated now. */
     public final class Requests {
 
@@ -206,6 +215,14 @@ public final class Repository<T> {
 
         public SheetRequest<Integer> delete(T entity) {
             return deleteById(keyOf(entity));
+        }
+
+        /**
+         * Resolves to the number of rows deleted. A row op (unlike {@link Worksheet#clear()}), so it can be
+         * batched and queued, and in a batch it commits together with the other row changes.
+         */
+        public SheetRequest<Integer> deleteAll() {
+            return worksheet.delete().all().request().map(RowsResult::count);
         }
     }
 
