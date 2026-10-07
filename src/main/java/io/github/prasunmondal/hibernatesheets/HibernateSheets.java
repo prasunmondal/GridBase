@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
@@ -9,6 +10,7 @@ import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException
 import io.github.prasunmondal.hibernatesheets.exception.ServerException;
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
 import io.github.prasunmondal.hibernatesheets.internal.Json;
+import io.github.prasunmondal.hibernatesheets.internal.Log;
 import io.github.prasunmondal.hibernatesheets.internal.RequestSerializer;
 import io.github.prasunmondal.hibernatesheets.internal.ResponseParser;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
@@ -30,7 +32,6 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -63,7 +64,7 @@ import java.util.function.Supplier;
  */
 public final class HibernateSheets {
 
-    private static final System.Logger LOG = System.getLogger(HibernateSheets.class.getName());
+    private static final Log LOG = Log.get(HibernateSheets.class);
 
     private static final ExecutorService ASYNC = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "hibernate-sheets-async");
@@ -92,8 +93,8 @@ public final class HibernateSheets {
         this.cacheStrategy = b.cacheStrategy;
         this.cacheExpiry = b.cacheExpiry;
         this.clock = b.clock;
-        this.preNetworkCallActions = List.copyOf(b.preNetworkCallActions);
-        this.postNetworkCallActions = List.copyOf(b.postNetworkCallActions);
+        this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
+        this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
         this.mapper = Json.mapper(b.objectMapper, b.zone);
         this.defaultSpreadsheetId = b.defaultSpreadsheetId;
         this.retryPolicy = b.retryPolicy;
@@ -168,7 +169,7 @@ public final class HibernateSheets {
 
     /** Executes one operation asynchronously; see {@link #executeAsync}. */
     public <R extends OperationResult> CompletableFuture<R> executeOneAsync(Operation operation, Class<R> resultType) {
-        return executeAsync(List.of(operation)).thenApply(r -> resultType.cast(r.results().get(0)));
+        return executeAsync(Compat.listOf(operation)).thenApply(r -> resultType.cast(r.results().get(0)));
     }
 
     /** The response cache, if one is configured. */
@@ -181,7 +182,7 @@ public final class HibernateSheets {
         if (operations.isEmpty()) {
             throw new IllegalArgumentException("At least one operation is required");
         }
-        List<Operation> ops = List.copyOf(operations);
+        List<Operation> ops = Compat.copyOf(operations);
         boolean readOnly = isReadOnly(ops);
         if (cache == null) {
             return fetch(ops, readOnly, async).thenApply(Reply::parsed);
@@ -193,7 +194,7 @@ public final class HibernateSheets {
         }
         CachedRead read = refresh ? refreshing(ops) : lookup(ops);
         if (read.hit()) {
-            return now(() -> parser.parse(read.entry().orElseThrow().reply(), ops));
+            return now(() -> parser.parse(read.entry().get().reply(), ops));
         }
         return fetch(ops, true, async).handle((reply, failure) -> finishRead(read, reply, failure));
     }
@@ -220,7 +221,7 @@ public final class HibernateSheets {
      * call, schema operations alone, order kept). Each request gets its own outcome.
      */
     List<Outcome<ExecutionResponse>> executeTogether(List<Planned> planned, int maxOperationsPerCall) {
-        List<List<Operation>> requests = planned.stream().map(Planned::operations).toList();
+        List<List<Operation>> requests = planned.stream().map(Planned::operations).collect(Compat.toList());
         int n = requests.size();
         List<Outcome<ExecutionResponse>> outcomes = new ArrayList<>(Collections.nCopies(n, null));
         CachedRead[] reads = new CachedRead[n];
@@ -231,7 +232,7 @@ public final class HibernateSheets {
                 CachedRead read = planned.get(i).forceRefresh() ? refreshing(ops) : lookup(ops);
                 reads[i] = read;
                 if (read.hit()) {
-                    outcomes.set(i, Outcome.of(() -> parser.parse(read.entry().orElseThrow().reply(), ops)));
+                    outcomes.set(i, Outcome.of(() -> parser.parse(read.entry().get().reply(), ops)));
                     continue;
                 }
             }
@@ -250,7 +251,7 @@ public final class HibernateSheets {
                 currentOps = 0;
             }
             if (alone) {
-                calls.add(List.of(i));
+                calls.add(Compat.listOf(i));
             } else {
                 current.add(i);
                 currentOps += ops.size();
@@ -261,7 +262,7 @@ public final class HibernateSheets {
         }
 
         for (List<Integer> call : calls) {
-            List<Outcome<Reply>> replies = sendCombined(call.stream().map(requests::get).toList());
+            List<Outcome<Reply>> replies = sendCombined(call.stream().map(requests::get).collect(Compat.toList()));
             for (int k = 0; k < call.size(); k++) {
                 int i = call.get(k);
                 Outcome<Reply> reply = replies.get(k);
@@ -281,7 +282,7 @@ public final class HibernateSheets {
         }
         return outcomes.stream()
                 .map(o -> o.failure() == null ? o : new Outcome<ExecutionResponse>(null, rethrowable(o.failure())))
-                .toList();
+                .collect(Compat.toList());
     }
 
     /**
@@ -292,7 +293,7 @@ public final class HibernateSheets {
     List<Outcome<Reply>> sendCombined(List<List<Operation>> requests) {
         if (requests.size() == 1) {
             List<Operation> only = requests.get(0);
-            return List.of(Outcome.of(() -> remote(only, isReadOnly(only))));
+            return Compat.listOf(Outcome.of(() -> remote(only, isReadOnly(only))));
         }
         List<Operation> all = new ArrayList<>();
         requests.forEach(all::addAll);
@@ -301,13 +302,13 @@ public final class HibernateSheets {
             combined = remote(all, isReadOnly(all));
         } catch (ServerException e) {
             if (e.isRetryable()) {
-                return requests.stream().map(r -> new Outcome<Reply>(null, e)).toList();
+                return requests.stream().map(r -> new Outcome<Reply>(null, e)).collect(Compat.toList());
             }
-            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets combined call rejected ("
+            LOG.debug(() -> "hibernate.sheets combined call rejected ("
                     + e.getMessage() + "); re-sending " + requests.size() + " requests individually");
-            return requests.stream().map(r -> Outcome.of(() -> remote(r, isReadOnly(r)))).toList();
+            return requests.stream().map(r -> Outcome.of(() -> remote(r, isReadOnly(r)))).collect(Compat.toList());
         } catch (RuntimeException e) {
-            return requests.stream().map(r -> new Outcome<Reply>(null, e)).toList();
+            return requests.stream().map(r -> new Outcome<Reply>(null, e)).collect(Compat.toList());
         }
         List<Outcome<Reply>> out = new ArrayList<>();
         int offset = 0;
@@ -340,7 +341,7 @@ public final class HibernateSheets {
         boolean hit = cacheStrategy == CacheStrategy.CACHE_FIRST
                 && entry.isPresent() && entry.get().isFresh(clock.instant());
         if (hit) {
-            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
+            LOG.debug(() -> "hibernate.sheets cache hit " + key);
         }
         return new CachedRead(operations, key, entry, hit);
     }
@@ -355,7 +356,7 @@ public final class HibernateSheets {
         if (failure == null) {
             Instant cachedAt = clock.instant();
             List<SheetRef> sheets = read.operations().stream()
-                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().toList();
+                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().collect(Compat.toList());
             quietly("write", () -> {
                 cache.put(read.key(), reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
                 return null;
@@ -367,7 +368,7 @@ public final class HibernateSheets {
                 || (cause instanceof HibernateSheetsException e && e.isRetryable());
         if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && read.entry().isPresent()) {
             SqliteResponseCache.Entry stale = read.entry().get();
-            LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request failed, serving cached reply from "
+            LOG.warning(() -> "hibernate.sheets request failed, serving cached reply from "
                     + stale.cachedAt() + ": " + cause.getMessage());
             return parser.parse(stale.reply(), read.operations());
         }
@@ -408,7 +409,9 @@ public final class HibernateSheets {
         try {
             return CompletableFuture.completedFuture(work.get());
         } catch (RuntimeException e) {
-            return CompletableFuture.failedFuture(e);
+            CompletableFuture<T> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
         }
     }
 
@@ -439,7 +442,7 @@ public final class HibernateSheets {
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256")
                     .digest(serializer.serialize("", operations).getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
+            return Compat.hex(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
@@ -450,7 +453,7 @@ public final class HibernateSheets {
         try {
             return work.get();
         } catch (HibernateSheetsException e) {
-            LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets cache " + what + " failed: " + e.getMessage());
+            LOG.warning(() -> "hibernate.sheets cache " + what + " failed: " + e.getMessage());
             return null;
         }
     }
@@ -464,9 +467,9 @@ public final class HibernateSheets {
 
         for (int attempt = 1; ; attempt++) {
             try {
-                LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets request " + requestId + ": " + body);
+                LOG.debug(() -> "hibernate.sheets request " + requestId + ": " + body);
                 String reply = send(new NetworkCall(requestId, body, attempt));
-                LOG.log(System.Logger.Level.TRACE, () -> "hibernate.sheets reply " + requestId + ": " + reply);
+                LOG.trace(() -> "hibernate.sheets reply " + requestId + ": " + reply);
                 return new Reply(reply, parser.parse(reply, operations));
             } catch (HibernateSheetsException e) {
                 if (!retryPolicy.shouldRetry(e, attempt, readOnly)) {
@@ -474,7 +477,7 @@ public final class HibernateSheets {
                 }
                 Duration delay = retryPolicy.delayAfter(attempt);
                 int failedAttempt = attempt;
-                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request " + requestId
+                LOG.warning(() -> "hibernate.sheets request " + requestId
                         + " failed (attempt " + failedAttempt + "), retrying in " + delay.toMillis() + " ms: "
                         + e.getMessage());
                 sleep(delay);
@@ -484,7 +487,7 @@ public final class HibernateSheets {
 
     /** Executes one operation and returns its result, typed. */
     public <R extends OperationResult> R executeOne(Operation operation, Class<R> resultType) {
-        return resultType.cast(execute(List.of(operation)).results().get(0));
+        return resultType.cast(execute(Compat.listOf(operation)).results().get(0));
     }
 
     /** The mapper used for rows and entities (configured with the client's time zone). */

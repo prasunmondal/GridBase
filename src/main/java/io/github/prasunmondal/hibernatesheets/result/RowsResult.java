@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.result;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -12,7 +13,7 @@ import java.util.function.Function;
 public record RowsResult(String operationId, int rowCount, List<Row> rows) implements OperationResult {
 
     public RowsResult {
-        rows = List.copyOf(rows);
+        rows = Compat.copyOf(rows);
     }
 
     /** Alias for {@link #rowCount()}, reads better for writes: {@code update(...).execute().count()}. */
@@ -25,10 +26,10 @@ public record RowsResult(String operationId, int rowCount, List<Row> rows) imple
     }
 
     public <T> List<T> as(Class<T> type) {
-        return rows.stream().map(r -> r.as(type)).toList();
+        return rows.stream().map(r -> r.as(type)).collect(Compat.toList());
     }
 
     public <T> List<T> map(Function<Row, T> mapper) {
-        return rows.stream().map(mapper).toList();
+        return rows.stream().map(mapper).collect(Compat.toList());
     }
 }

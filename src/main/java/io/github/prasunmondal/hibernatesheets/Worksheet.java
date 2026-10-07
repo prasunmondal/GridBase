@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.spec.CloneSpec;
 import io.github.prasunmondal.hibernatesheets.spec.DeleteSpec;
 import io.github.prasunmondal.hibernatesheets.spec.InsertSpec;
@@ -24,10 +25,10 @@ public final class Worksheet {
 
     Worksheet(HibernateSheets client, String spreadsheetId, String name) {
         this.client = Objects.requireNonNull(client, "client");
-        if (spreadsheetId == null || spreadsheetId.isBlank()) {
+        if (spreadsheetId == null || Compat.isBlank(spreadsheetId)) {
             throw new IllegalArgumentException("spreadsheetId must not be empty");
         }
-        if (name == null || name.isBlank()) {
+        if (name == null || Compat.isBlank(name)) {
             throw new IllegalArgumentException("worksheet name must not be empty");
         }
         this.spreadsheetId = spreadsheetId;

@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.result;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import java.util.List;
 
 /**
@@ -14,7 +15,7 @@ public record AddColumnsResult(String operationId, String worksheet, List<String
         implements OperationResult {
 
     public AddColumnsResult {
-        columns = List.copyOf(columns);
-        skippedColumns = List.copyOf(skippedColumns);
+        columns = Compat.copyOf(columns);
+        skippedColumns = Compat.copyOf(skippedColumns);
     }
 }

@@ -1,13 +1,15 @@
 package io.github.prasunmondal.hibernatesheets.transport;
 
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
@@ -21,6 +23,8 @@ import java.util.regex.Pattern;
  * <p>Apps Script answers a POST with a {@code 302} to a one-time {@code script.googleusercontent.com}
  * URL that must be fetched with GET. Redirects are followed manually so that behaviour is explicit and
  * the {@code Authorization} header is never forwarded to a different host.</p>
+ *
+ * <p>Built on {@link HttpURLConnection} so it runs on both the JDK and Android.</p>
  */
 public final class HttpTransport implements Transport {
 
@@ -29,20 +33,17 @@ public final class HttpTransport implements Transport {
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     private final URI endpoint;
-    private final HttpClient http;
+    private final Duration connectTimeout;
     private final Duration requestTimeout;
     private final Supplier<String> accessToken;
     private final String userAgent;
 
     private HttpTransport(Builder b) {
         this.endpoint = Objects.requireNonNull(b.endpoint, "endpoint");
+        this.connectTimeout = b.connectTimeout;
         this.requestTimeout = b.requestTimeout;
         this.accessToken = b.accessToken;
         this.userAgent = b.userAgent;
-        this.http = b.httpClient != null ? b.httpClient : HttpClient.newBuilder()
-                .connectTimeout(b.connectTimeout)
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
     }
 
     public static Builder builder(String endpoint) {
@@ -60,45 +61,32 @@ public final class HttpTransport implements Transport {
     @Override
     public String send(String requestJson) {
         String authorization = authorizationHeader();
-        HttpRequest.Builder first = base(endpoint)
-                .header("Content-Type", "application/json; charset=utf-8")
-                .POST(HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8));
-        if (authorization != null) {
-            first.header("Authorization", authorization);
-        }
-        HttpRequest request = first.build();
+        byte[] json = requestJson.getBytes(StandardCharsets.UTF_8);
 
         URI current = endpoint;
+        byte[] body = json;
+        String auth = authorization;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
-            HttpResponse<String> response = exchange(request);
-            int status = response.statusCode();
+            Response response = exchange(current, body, auth);
+            int status = response.status;
 
             if (isRedirect(status)) {
-                String location = response.headers().firstValue("Location").orElseThrow(() ->
-                        new TransportException("Redirect " + status + " without Location header", status, null, false));
-                URI next = current.resolve(location);
+                if (response.location == null) {
+                    throw new TransportException("Redirect " + status + " without Location header", status, null, false);
+                }
+                URI next = current.resolve(response.location);
                 boolean sameHost = Objects.equals(next.getHost(), endpoint.getHost());
-                HttpRequest.Builder follow = base(next);
-                if (status == 307 || status == 308) {
-                    follow.header("Content-Type", "application/json; charset=utf-8")
-                            .POST(HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8));
-                } else {
-                    follow.GET();
-                }
-                if (sameHost && authorization != null) {
-                    follow.header("Authorization", authorization);
-                }
-                request = follow.build();
+                body = (status == 307 || status == 308) ? json : null;
+                auth = sameHost ? authorization : null;
                 current = next;
                 continue;
             }
 
-            String body = response.body();
             if (status == 200) {
-                if (looksLikeHtml(body)) {
-                    throw new TransportException(htmlHint(body), status, null, false);
+                if (looksLikeHtml(response.body)) {
+                    throw new TransportException(htmlHint(response.body), status, null, false);
                 }
-                return body;
+                return response.body;
             }
             boolean retryable = status == 408 || status == 429 || status >= 500;
             String hint = (status == 401 || status == 403)
@@ -110,14 +98,80 @@ public final class HttpTransport implements Transport {
         throw new TransportException("Too many redirects (>" + MAX_REDIRECTS + ")", -1, null, false);
     }
 
-    private HttpRequest.Builder base(URI uri) {
-        HttpRequest.Builder b = HttpRequest.newBuilder(uri)
-                .timeout(requestTimeout)
-                .header("Accept", "application/json");
-        if (userAgent != null) {
-            b.header("User-Agent", userAgent);
+    private static final class Response {
+        final int status;
+        final String location;
+        final String body;
+
+        Response(int status, String location, String body) {
+            this.status = status;
+            this.location = location;
+            this.body = body;
         }
-        return b;
+    }
+
+    /** One HTTP exchange: POST when {@code body} is non-null, otherwise GET. */
+    private Response exchange(URI uri, byte[] body, String authorization) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) uri.toURL().openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setUseCaches(false);
+            conn.setConnectTimeout(timeoutMillis(connectTimeout));
+            conn.setReadTimeout(timeoutMillis(requestTimeout));
+            conn.setRequestProperty("Accept", "application/json");
+            if (userAgent != null) {
+                conn.setRequestProperty("User-Agent", userAgent);
+            }
+            if (authorization != null) {
+                conn.setRequestProperty("Authorization", authorization);
+            }
+            if (body != null) {
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                conn.setFixedLengthStreamingMode(body.length);
+                try (OutputStream out = conn.getOutputStream()) {
+                    out.write(body);
+                }
+            } else {
+                conn.setRequestMethod("GET");
+            }
+            int status = conn.getResponseCode();
+            String location = conn.getHeaderField("Location");
+            InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            return new Response(status, location, readUtf8(in));
+        } catch (SocketTimeoutException e) {
+            throw new TransportException("Timed out calling " + uri.getHost()
+                    + " (Apps Script executions can take several seconds on large sheets;"
+                    + " consider a longer requestTimeout)", -1, e, true);
+        } catch (IOException e) {
+            throw new TransportException("I/O error calling " + uri.getHost() + ": " + e.getMessage(),
+                    -1, e, true);
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    private static String readUtf8(InputStream in) throws IOException {
+        if (in == null) {
+            return "";
+        }
+        try (InputStream stream = in) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = stream.read(buffer)) != -1) {
+                out.write(buffer, 0, n);
+            }
+            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static int timeoutMillis(Duration d) {
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0, d.toMillis()));
     }
 
     private String authorizationHeader() {
@@ -125,23 +179,7 @@ public final class HttpTransport implements Transport {
             return null;
         }
         String token = accessToken.get();
-        return token == null || token.isBlank() ? null : "Bearer " + token;
-    }
-
-    private HttpResponse<String> exchange(HttpRequest request) {
-        try {
-            return http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (HttpTimeoutException e) {
-            throw new TransportException("Timed out calling " + request.uri().getHost()
-                    + " (Apps Script executions can take several seconds on large sheets;"
-                    + " consider a longer requestTimeout)", -1, e, true);
-        } catch (IOException e) {
-            throw new TransportException("I/O error calling " + request.uri().getHost() + ": " + e.getMessage(),
-                    -1, e, true);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new TransportException("Interrupted while calling the engine", -1, e, false);
-        }
+        return token == null || Compat.isBlank(token) ? null : "Bearer " + token;
     }
 
     private static boolean isRedirect(int status) {
@@ -152,7 +190,7 @@ public final class HttpTransport implements Transport {
         if (body == null) {
             return false;
         }
-        String trimmed = body.stripLeading();
+        String trimmed = Compat.stripLeading(body);
         return trimmed.startsWith("<");
     }
 
@@ -166,7 +204,6 @@ public final class HttpTransport implements Transport {
 
     public static final class Builder {
         private final URI endpoint;
-        private HttpClient httpClient;
         private Duration connectTimeout = Duration.ofSeconds(10);
         private Duration requestTimeout = Duration.ofSeconds(90);
         private Supplier<String> accessToken;
@@ -176,18 +213,15 @@ public final class HttpTransport implements Transport {
             this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         }
 
-        /** Supply your own client. It must be configured with {@code Redirect.NEVER}. */
-        public Builder httpClient(HttpClient httpClient) {
-            this.httpClient = httpClient;
-            return this;
-        }
-
         public Builder connectTimeout(Duration connectTimeout) {
             this.connectTimeout = Objects.requireNonNull(connectTimeout);
             return this;
         }
 
-        /** Per HTTP exchange. Apps Script itself caps executions at 6 minutes. */
+        /**
+         * Read timeout per HTTP exchange (maximum wait for the reply to start or continue).
+         * Apps Script itself caps executions at 6 minutes.
+         */
         public Builder requestTimeout(Duration requestTimeout) {
             this.requestTimeout = Objects.requireNonNull(requestTimeout);
             return this;

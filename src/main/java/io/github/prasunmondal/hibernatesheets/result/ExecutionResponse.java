@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.result;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -14,6 +15,6 @@ public record ExecutionResponse(String requestId, long executionTimeMillis,
                                 List<OperationResult> results, JsonNode debug) {
 
     public ExecutionResponse {
-        results = List.copyOf(results);
+        results = Compat.copyOf(results);
     }
 }

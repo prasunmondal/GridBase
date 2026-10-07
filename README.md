@@ -40,7 +40,24 @@ Optional<Employee> e = Employee.repository().findById("E001");
 ```
 
 Dependencies: `jackson-databind`, `jackson-datatype-jsr310` and `sqlite-jdbc` (for the response
-cache). HTTP uses the JDK's `java.net.http.HttpClient`.
+cache). HTTP uses `java.net.HttpURLConnection` and logging uses `java.util.logging`, so the library
+also runs on Android (API 26+); the build checks this with animal-sniffer.
+
+### Android
+
+- Make calls off the main thread (Android throws `NetworkOnMainThreadException`).
+- The response cache works on Android: `sqlite-jdbc` bundles native libraries for arm, arm64, x86
+  and x86_64. By default the database goes to `<app cache dir>/hibernate-sheets/cache.db`; to keep it
+  out of the cache dir (which Android may clear under storage pressure), pass
+  `.cacheFile(new File(context.getFilesDir(), "hibernate-sheets.db").toPath())`.
+- With R8/minification on, keep the SQLite driver (its native code calls back into it by name):
+
+  ```
+  -keep class org.sqlite.** { *; }
+  ```
+
+- If the cache cannot be opened on a device, caching is disabled with a warning and every request
+  still works.
 
 ---
 

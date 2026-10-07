@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.mapping;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.prasunmondal.hibernatesheets.HibernateSheets;
 import io.github.prasunmondal.hibernatesheets.SheetProperties;
@@ -163,7 +164,7 @@ public final class Repository<T> {
 
         public SheetRequest<List<T>> insertAll(Collection<? extends T> entities) {
             if (entities.isEmpty()) {
-                return SheetRequest.completed(List.of());
+                return SheetRequest.completed(Compat.listOf());
             }
             return worksheet.insertAll(entities).request().map(r -> r.as(type));
         }
@@ -179,7 +180,7 @@ public final class Repository<T> {
         /** All upserts in one engine request: written together, all-or-nothing. */
         public SheetRequest<List<T>> saveAll(Collection<? extends T> entities) {
             if (entities.isEmpty()) {
-                return SheetRequest.completed(List.of());
+                return SheetRequest.completed(Compat.listOf());
             }
             List<Operation> ops = new ArrayList<>(entities.size());
             for (T entity : entities) {
@@ -222,7 +223,7 @@ public final class Repository<T> {
     }
 
     private static Object requireId(Object id) {
-        if (id == null || (id instanceof String s && s.isBlank())) {
+        if (id == null || (id instanceof String s && Compat.isBlank(s))) {
             throw new IllegalArgumentException("Entity key must not be null or blank");
         }
         return id;

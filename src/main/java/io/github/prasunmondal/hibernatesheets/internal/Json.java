@@ -71,7 +71,7 @@ public final class Json {
             return Instant.ofEpochMilli(p.getLongValue()).atZone(zone).toLocalDateTime();
         }
         String text = p.getValueAsString();
-        if (text == null || text.isBlank()) {
+        if (text == null || Compat.isBlank(text)) {
             return null;
         }
         text = text.trim();

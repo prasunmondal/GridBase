@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.SheetRequest;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.result.Row;
@@ -33,7 +34,7 @@ public final class SelectSpec extends FilterSpec<SelectSpec> {
 
     @Override
     public Operation toOperation() {
-        return filtered(projection, List.of());
+        return filtered(projection, Compat.listOf());
     }
 
     public List<Row> fetch() {
@@ -69,7 +70,7 @@ public final class SelectSpec extends FilterSpec<SelectSpec> {
         if (op.limit() != 0) {
             op = op.withLimit(1);
         }
-        return SheetRequest.of(worksheet.client(), List.of(op), r -> ((RowsResult) r.results().get(0)).first());
+        return SheetRequest.of(worksheet.client(), Compat.listOf(op), r -> ((RowsResult) r.results().get(0)).first());
     }
 
     public <T> SheetRequest<Optional<T>> firstRequest(Class<T> type) {

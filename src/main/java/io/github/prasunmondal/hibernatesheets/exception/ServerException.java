@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.exception;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -15,7 +16,7 @@ import java.util.Locale;
  */
 public class ServerException extends HibernateSheetsException {
 
-    private static final List<String> TRANSIENT_MARKERS = List.of(
+    private static final List<String> TRANSIENT_MARKERS = Compat.listOf(
             "too many times in a short time",
             "lock timeout",
             "timed out",
@@ -36,7 +37,7 @@ public class ServerException extends HibernateSheetsException {
                 null, isTransient(serverMessage));
         this.serverMessage = serverMessage;
         this.exceptionType = exceptionType;
-        this.serverStackTrace = serverStackTrace == null ? List.of() : List.copyOf(serverStackTrace);
+        this.serverStackTrace = serverStackTrace == null ? Compat.listOf() : Compat.copyOf(serverStackTrace);
         this.debug = debug;
     }
 

@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.result.RowsResult;
 
@@ -52,6 +53,6 @@ public final class InsertSpec extends OperationSpec<RowsResult> {
             throw new IllegalStateException("INSERT into '" + worksheet.name() + "' has no rows");
         }
         // Always the bulk "rows" form; a single row is a one-element batch.
-        return operation(List.of(), List.of(), List.of(), List.of(), rows, List.of(), false, -1, 0);
+        return operation(Compat.listOf(), Compat.listOf(), Compat.listOf(), Compat.listOf(), rows, Compat.listOf(), false, -1, 0);
     }
 }

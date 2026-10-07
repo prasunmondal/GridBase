@@ -1,9 +1,11 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
 import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
 import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
+import io.github.prasunmondal.hibernatesheets.internal.Log;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.transport.Transport;
 
@@ -51,7 +53,7 @@ public final class SheetProperties {
 
     private static final Pattern SPREADSHEET_URL = Pattern.compile("/spreadsheets/d/([a-zA-Z0-9_-]+)");
 
-    private static final System.Logger LOG = System.getLogger(SheetProperties.class.getName());
+    private static final Log LOG = Log.get(SheetProperties.class);
 
     private final String scriptUrl;
     private final Transport transport;
@@ -108,8 +110,8 @@ public final class SheetProperties {
         this.connectTimeout = b.connectTimeout;
         this.requestTimeout = b.requestTimeout;
         this.accessToken = b.accessToken;
-        this.preNetworkCallActions = List.copyOf(b.preNetworkCallActions);
-        this.postNetworkCallActions = List.copyOf(b.postNetworkCallActions);
+        this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
+        this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
         this.shallCache = b.shallCache;
         this.cacheStrategy = b.cacheStrategy;
         this.cacheExpiry = b.cacheExpiry;
@@ -257,9 +259,10 @@ public final class SheetProperties {
         if (shallCache) {
             try {
                 b.cache(SqliteResponseCache.open(cacheFile), cacheStrategy, cacheExpiry);
-            } catch (HibernateSheetsException e) {
-                // Caching is an optimisation: without it every request still works.
-                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets cache disabled: " + e.getMessage());
+            } catch (HibernateSheetsException | LinkageError e) {
+                // Caching is an optimisation: without it every request still works. LinkageError covers a
+                // platform where the SQLite driver or its native library is unavailable (e.g. some Android ABIs).
+                LOG.warning(() -> "hibernate.sheets cache disabled: " + e.getMessage());
             }
         }
         if (queueWindow != null) {

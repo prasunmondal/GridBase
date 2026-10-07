@@ -100,6 +100,35 @@
                 </configuration>
             </plugin>
 
+            <!-- Android: main code may only use APIs available on Android API 26 (Android 8.0).
+                 The ignored classes are bytecode features that D8 desugars (records, lambdas, string concat). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>animal-sniffer-maven-plugin</artifactId>
+                <version>1.24</version>
+                <configuration>
+                    <signature>
+                        <groupId>net.sf.androidscents.signature</groupId>
+                        <artifactId>android-api-level-26</artifactId>
+                        <version>8.0.0_r2</version>
+                    </signature>
+                    <ignores>
+                        <ignore>java.lang.Record</ignore>
+                        <ignore>java.lang.runtime.*</ignore>
+                        <ignore>java.lang.invoke.*</ignore>
+                    </ignores>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>android-api</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
