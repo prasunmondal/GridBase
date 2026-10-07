@@ -7,7 +7,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -16,6 +15,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -52,7 +52,9 @@ public final class SqliteResponseCache implements AutoCloseable {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            this.connection = DriverManager.getConnection("jdbc:sqlite:" + file);
+            // The driver is used directly rather than via DriverManager: ServiceLoader driver discovery is
+            // unreliable on Android ("No suitable driver").
+            this.connection = new org.sqlite.JDBC().connect("jdbc:sqlite:" + file, new Properties());
             try (Statement s = connection.createStatement()) {
                 s.execute("PRAGMA busy_timeout = 5000");
                 s.execute("PRAGMA journal_mode = WAL");
@@ -79,9 +81,21 @@ public final class SqliteResponseCache implements AutoCloseable {
                 ? existing : new SqliteResponseCache(k));
     }
 
-    /** {@code ~/.hibernate-sheets/cache.db} */
+    /**
+     * {@code ~/.hibernate-sheets/cache.db}; on Android, which has no usable home directory,
+     * {@code <java.io.tmpdir>/hibernate-sheets/cache.db} (Android points {@code java.io.tmpdir} at the
+     * app's cache dir).
+     */
     public static Path defaultFile() {
+        if (isAndroid()) {
+            return Paths.get(System.getProperty("java.io.tmpdir"), "hibernate-sheets", "cache.db");
+        }
         return Paths.get(System.getProperty("user.home"), ".hibernate-sheets", "cache.db");
+    }
+
+    private static boolean isAndroid() {
+        return "Dalvik".equals(System.getProperty("java.vm.name"))
+                || String.valueOf(System.getProperty("java.vendor")).contains("Android");
     }
 
     public Path file() {
