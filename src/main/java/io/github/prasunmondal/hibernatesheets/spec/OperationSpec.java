@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.prasunmondal.hibernatesheets.APIRequestsQueue;
 import io.github.prasunmondal.hibernatesheets.Queued;
@@ -57,7 +58,7 @@ public abstract class OperationSpec<R extends OperationResult> {
     /** This operation as a not-yet-sent {@link SheetRequest} (validated now). */
     public SheetRequest<R> request() {
         Class<R> type = resultType();
-        return SheetRequest.of(worksheet.client(), List.of(toOperation()), r -> type.cast(r.results().get(0)));
+        return SheetRequest.of(worksheet.client(), Compat.listOf(toOperation()), r -> type.cast(r.results().get(0)));
     }
 
     /** Adds this operation to {@code queue}; the result is available after {@code queue.execute()}. */

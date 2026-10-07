@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.exception;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import java.util.List;
 
 /**
@@ -15,7 +16,7 @@ public class QueueExecutionException extends HibernateSheetsException {
     public QueueExecutionException(List<RuntimeException> failures, int requestCount) {
         super(failures.size() + " of " + requestCount + " queued requests failed; first: "
                 + failures.get(0).getMessage(), failures.get(0), false);
-        this.failures = List.copyOf(failures);
+        this.failures = Compat.copyOf(failures);
         this.requestCount = requestCount;
         failures.stream().skip(1).forEach(this::addSuppressed);
     }

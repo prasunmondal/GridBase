@@ -10,7 +10,11 @@ the **hibernate.sheets** Google Apps Script engine (Google Sheets used as a data
 with identical content — keep them in sync (`diff -rq --strip-trailing-cr appscript/backend
 server-appscript/backend`). Engine changes only reach a live deployment after redeploying it.
 Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-datatype-jsr310` +
-`sqlite-jdbc` (response cache); HTTP uses the JDK `java.net.http.HttpClient`.
+`sqlite-jdbc` (response cache); HTTP uses `java.net.HttpURLConnection`.
+Main code must stay Android-compatible (API 26): no `System.Logger`, `java.net.http`, or JDK 9+ library
+methods such as `List.of` / `Stream.toList()` / `String.isBlank()` — use `internal.Compat` / `internal.Log`.
+The `animal-sniffer` check (phase `process-classes`) fails the build otherwise; language features
+(records, `var`, pattern `instanceof`) are fine because D8 desugars them.
 
 ## Commands
 

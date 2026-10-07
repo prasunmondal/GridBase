@@ -40,7 +40,9 @@ Optional<Employee> e = Employee.repository().findById("E001");
 ```
 
 Dependencies: `jackson-databind`, `jackson-datatype-jsr310` and `sqlite-jdbc` (for the response
-cache). HTTP uses the JDK's `java.net.http.HttpClient`.
+cache). HTTP uses `java.net.HttpURLConnection` and logging uses `java.util.logging`, so the library
+also runs on Android (API 26+); the build checks this with animal-sniffer. On Android the SQLite
+response cache may be unavailable — if it cannot be opened, caching is disabled with a warning.
 
 ---
 

@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.query.Filters;
 
@@ -37,6 +38,6 @@ public final class UpsertSpec extends MutationSpec<UpsertSpec> {
         if (assignments.isEmpty()) {
             throw new IllegalStateException("UPSERT on '" + worksheet.name() + "' has nothing to set");
         }
-        return filtered(java.util.List.of(), assignmentList());
+        return filtered(Compat.listOf(), assignmentList());
     }
 }

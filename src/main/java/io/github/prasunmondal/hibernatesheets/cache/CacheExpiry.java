@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.cache;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
@@ -43,7 +44,7 @@ public interface CacheExpiry {
     /** Expires at the next occurrence (strictly after caching) of any of {@code times} in {@code zone}. */
     static CacheExpiry dailyAt(ZoneId zone, LocalTime... times) {
         Objects.requireNonNull(zone, "zone");
-        List<LocalTime> at = List.of(times);
+        List<LocalTime> at = Compat.listOf(times);
         if (at.isEmpty()) {
             throw new IllegalArgumentException("At least one time is required");
         }

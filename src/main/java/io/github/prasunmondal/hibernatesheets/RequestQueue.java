@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.HibernateSheets.Outcome;
 import io.github.prasunmondal.hibernatesheets.HibernateSheets.Reply;
 import io.github.prasunmondal.hibernatesheets.spec.Operation;
@@ -72,7 +73,7 @@ final class RequestQueue {
 
     /** The returned future completes on a callback thread, never on the queue thread. */
     CompletableFuture<Reply> submit(List<Operation> operations) {
-        Pending p = new Pending(List.copyOf(operations), new CompletableFuture<>());
+        Pending p = new Pending(Compat.copyOf(operations), new CompletableFuture<>());
         synchronized (this) {
             pending.add(p);
             pendingOperations += p.operations().size();
@@ -107,7 +108,7 @@ final class RequestQueue {
             return;
         }
         try {
-            List<Outcome<Reply>> outcomes = sendCombined.apply(chunk.stream().map(Pending::operations).toList());
+            List<Outcome<Reply>> outcomes = sendCombined.apply(chunk.stream().map(Pending::operations).collect(Compat.toList()));
             for (int i = 0; i < chunk.size(); i++) {
                 Outcome<Reply> o = outcomes.get(i);
                 if (o.failure() != null) {

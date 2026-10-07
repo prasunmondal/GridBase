@@ -5,6 +5,7 @@ import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -80,7 +81,7 @@ public final class SqliteResponseCache implements AutoCloseable {
 
     /** {@code ~/.hibernate-sheets/cache.db} */
     public static Path defaultFile() {
-        return Path.of(System.getProperty("user.home"), ".hibernate-sheets", "cache.db");
+        return Paths.get(System.getProperty("user.home"), ".hibernate-sheets", "cache.db");
     }
 
     public Path file() {

@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.mapping;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.lang.reflect.Field;
@@ -21,8 +22,8 @@ final class EntityMetadata {
     private EntityMetadata(Class<?> type) {
         this.type = type;
         SheetTable table = type.getAnnotation(SheetTable.class);
-        this.worksheet = table != null && !table.worksheet().isBlank() ? table.worksheet() : type.getSimpleName();
-        this.spreadsheetId = table != null && !table.spreadsheetId().isBlank() ? table.spreadsheetId() : null;
+        this.worksheet = table != null && !Compat.isBlank(table.worksheet()) ? table.worksheet() : type.getSimpleName();
+        this.spreadsheetId = table != null && !Compat.isBlank(table.spreadsheetId()) ? table.spreadsheetId() : null;
 
         Field key = null;
         for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {

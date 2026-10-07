@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.query.Filter;
 import io.github.prasunmondal.hibernatesheets.query.Sort;
 
@@ -28,18 +29,18 @@ public record Operation(
 
     public Operation {
         Objects.requireNonNull(type, "type");
-        if (spreadsheetId == null || spreadsheetId.isBlank()) {
+        if (spreadsheetId == null || Compat.isBlank(spreadsheetId)) {
             throw new IllegalArgumentException("spreadsheetId must not be empty");
         }
-        if (worksheet == null || worksheet.isBlank()) {
+        if (worksheet == null || Compat.isBlank(worksheet)) {
             throw new IllegalArgumentException("worksheet must not be empty");
         }
-        filters = List.copyOf(filters);
-        orderBy = List.copyOf(orderBy);
-        select = List.copyOf(select);
-        values = List.copyOf(values);
-        rows = rows.stream().map(List::copyOf).toList();
-        columns = List.copyOf(columns);
+        filters = Compat.copyOf(filters);
+        orderBy = Compat.copyOf(orderBy);
+        select = Compat.copyOf(select);
+        values = Compat.copyOf(values);
+        rows = rows.stream().map(Compat::copyOf).collect(Compat.toList());
+        columns = Compat.copyOf(columns);
         if (limit < -1) {
             throw new IllegalArgumentException("limit must be >= 0 (or -1 for no limit)");
         }

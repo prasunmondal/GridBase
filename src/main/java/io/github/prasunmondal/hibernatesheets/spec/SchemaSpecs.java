@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.result.AddColumnsResult;
 import io.github.prasunmondal.hibernatesheets.result.ClearResult;
@@ -42,7 +43,7 @@ public final class SchemaSpecs {
 
         @Override
         public Operation toOperation() {
-            return operation(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), false, -1, 0);
+            return operation(Compat.listOf(), Compat.listOf(), Compat.listOf(), Compat.listOf(), Compat.listOf(), Compat.listOf(), false, -1, 0);
         }
     }
 
@@ -109,11 +110,11 @@ public final class SchemaSpecs {
                 throw new IllegalStateException("ADD_COLUMNS on '" + worksheet.name() + "' has no columns");
             }
             for (String c : columns) {
-                if (c == null || c.isBlank()) {
+                if (c == null || Compat.isBlank(c)) {
                     throw new IllegalArgumentException("Column names must not be blank");
                 }
             }
-            return operation(List.of(), List.of(), List.of(), List.of(), List.of(), columns, skipExisting, -1, 0);
+            return operation(Compat.listOf(), Compat.listOf(), Compat.listOf(), Compat.listOf(), Compat.listOf(), columns, skipExisting, -1, 0);
         }
     }
 }

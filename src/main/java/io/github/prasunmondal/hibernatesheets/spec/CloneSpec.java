@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 
 /**
@@ -22,6 +23,6 @@ public final class CloneSpec extends MutationSpec<CloneSpec> {
         if (filters.isEmpty()) {
             throw new IllegalStateException("CLONE on '" + worksheet.name() + "' needs where(...)");
         }
-        return filtered(java.util.List.of(), assignmentList());
+        return filtered(Compat.listOf(), assignmentList());
     }
 }

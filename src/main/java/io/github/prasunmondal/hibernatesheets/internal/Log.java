@@ -34,7 +34,7 @@ public final class Log {
 
     private void log(Level level, Supplier<String> message) {
         if (logger.isLoggable(level)) {
-            logger.log(level, message.get());
+            logger.logp(level, logger.getName(), null, message.get());
         }
     }
 }

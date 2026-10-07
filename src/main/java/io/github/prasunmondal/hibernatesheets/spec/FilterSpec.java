@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 import io.github.prasunmondal.hibernatesheets.query.Filter;
 import io.github.prasunmondal.hibernatesheets.query.Sort;
@@ -79,6 +80,6 @@ public abstract class FilterSpec<S extends FilterSpec<S>> extends OperationSpec<
     }
 
     protected Operation filtered(List<String> select, List<Assignment> values) {
-        return operation(filters, orderBy, select, values, List.of(), List.of(), false, limit, offset);
+        return operation(filters, orderBy, select, values, Compat.listOf(), Compat.listOf(), false, limit, offset);
     }
 }

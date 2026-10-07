@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.result.ExecutionResponse;
 import io.github.prasunmondal.hibernatesheets.spec.Operation;
 
@@ -50,12 +51,12 @@ public final class SheetRequest<T> {
         if (operations.isEmpty()) {
             throw new IllegalArgumentException("At least one operation is required; use completed(...)");
         }
-        return new SheetRequest<>(client, List.copyOf(operations), Objects.requireNonNull(mapper), null, false);
+        return new SheetRequest<>(client, Compat.copyOf(operations), Objects.requireNonNull(mapper), null, false);
     }
 
     /** A request that needs no network call (e.g. saving an empty list). */
     public static <T> SheetRequest<T> completed(T value) {
-        return new SheetRequest<>(null, List.of(), null, value, false);
+        return new SheetRequest<>(null, Compat.listOf(), null, value, false);
     }
 
     /**

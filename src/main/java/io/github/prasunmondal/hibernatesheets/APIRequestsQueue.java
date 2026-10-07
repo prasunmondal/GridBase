@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.HibernateSheets.Outcome;
 import io.github.prasunmondal.hibernatesheets.exception.QueueExecutionException;
 import io.github.prasunmondal.hibernatesheets.result.ExecutionResponse;
@@ -99,7 +100,7 @@ public final class APIRequestsQueue {
             List<Entry<?>> list = group.getValue();
             List<HibernateSheets.Planned> requests = list.stream()
                     .map(e -> new HibernateSheets.Planned(e.request().operations(), e.request().isForceRefresh()))
-                    .toList();
+                    .collect(Compat.toList());
             List<Outcome<ExecutionResponse>> outcomes;
             try {
                 outcomes = group.getKey().executeTogether(requests, maxOperationsPerCall);
@@ -120,7 +121,7 @@ public final class APIRequestsQueue {
         List<RuntimeException> failures = entries.stream()
                 .map(e -> e.handle().failure())
                 .filter(f -> f != null)
-                .toList();
+                .collect(Compat.toList());
         if (!failures.isEmpty()) {
             throw new QueueExecutionException(failures, entries.size());
         }

@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 
 import java.util.List;
@@ -33,6 +34,6 @@ public final class DeleteSpec extends FilterSpec<DeleteSpec> {
             throw new IllegalStateException("DELETE on '" + worksheet.name()
                     + "' has no where(...) and would delete every row; call all() if that is intended");
         }
-        return filtered(List.of(), List.of());
+        return filtered(Compat.listOf(), Compat.listOf());
     }
 }

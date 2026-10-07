@@ -1,5 +1,6 @@
 package io.github.prasunmondal.hibernatesheets.spec;
 
+import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import io.github.prasunmondal.hibernatesheets.Worksheet;
 
 /**
@@ -34,6 +35,6 @@ public final class UpdateSpec extends MutationSpec<UpdateSpec> {
             throw new IllegalStateException("UPDATE on '" + worksheet.name()
                     + "' has no where(...) and would change every row; call all() if that is intended");
         }
-        return filtered(java.util.List.of(), assignmentList());
+        return filtered(Compat.listOf(), assignmentList());
     }
 }
