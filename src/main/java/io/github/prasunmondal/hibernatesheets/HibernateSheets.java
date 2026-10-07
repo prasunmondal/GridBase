@@ -9,6 +9,7 @@ import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException
 import io.github.prasunmondal.hibernatesheets.exception.ServerException;
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
 import io.github.prasunmondal.hibernatesheets.internal.Json;
+import io.github.prasunmondal.hibernatesheets.internal.Log;
 import io.github.prasunmondal.hibernatesheets.internal.RequestSerializer;
 import io.github.prasunmondal.hibernatesheets.internal.ResponseParser;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
@@ -63,7 +64,7 @@ import java.util.function.Supplier;
  */
 public final class HibernateSheets {
 
-    private static final System.Logger LOG = System.getLogger(HibernateSheets.class.getName());
+    private static final Log LOG = Log.get(HibernateSheets.class);
 
     private static final ExecutorService ASYNC = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "hibernate-sheets-async");
@@ -303,7 +304,7 @@ public final class HibernateSheets {
             if (e.isRetryable()) {
                 return requests.stream().map(r -> new Outcome<Reply>(null, e)).toList();
             }
-            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets combined call rejected ("
+            LOG.debug(() -> "hibernate.sheets combined call rejected ("
                     + e.getMessage() + "); re-sending " + requests.size() + " requests individually");
             return requests.stream().map(r -> Outcome.of(() -> remote(r, isReadOnly(r)))).toList();
         } catch (RuntimeException e) {
@@ -340,7 +341,7 @@ public final class HibernateSheets {
         boolean hit = cacheStrategy == CacheStrategy.CACHE_FIRST
                 && entry.isPresent() && entry.get().isFresh(clock.instant());
         if (hit) {
-            LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets cache hit " + key);
+            LOG.debug(() -> "hibernate.sheets cache hit " + key);
         }
         return new CachedRead(operations, key, entry, hit);
     }
@@ -367,7 +368,7 @@ public final class HibernateSheets {
                 || (cause instanceof HibernateSheetsException e && e.isRetryable());
         if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && read.entry().isPresent()) {
             SqliteResponseCache.Entry stale = read.entry().get();
-            LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request failed, serving cached reply from "
+            LOG.warning(() -> "hibernate.sheets request failed, serving cached reply from "
                     + stale.cachedAt() + ": " + cause.getMessage());
             return parser.parse(stale.reply(), read.operations());
         }
@@ -450,7 +451,7 @@ public final class HibernateSheets {
         try {
             return work.get();
         } catch (HibernateSheetsException e) {
-            LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets cache " + what + " failed: " + e.getMessage());
+            LOG.warning(() -> "hibernate.sheets cache " + what + " failed: " + e.getMessage());
             return null;
         }
     }
@@ -464,9 +465,9 @@ public final class HibernateSheets {
 
         for (int attempt = 1; ; attempt++) {
             try {
-                LOG.log(System.Logger.Level.DEBUG, () -> "hibernate.sheets request " + requestId + ": " + body);
+                LOG.debug(() -> "hibernate.sheets request " + requestId + ": " + body);
                 String reply = send(new NetworkCall(requestId, body, attempt));
-                LOG.log(System.Logger.Level.TRACE, () -> "hibernate.sheets reply " + requestId + ": " + reply);
+                LOG.trace(() -> "hibernate.sheets reply " + requestId + ": " + reply);
                 return new Reply(reply, parser.parse(reply, operations));
             } catch (HibernateSheetsException e) {
                 if (!retryPolicy.shouldRetry(e, attempt, readOnly)) {
@@ -474,7 +475,7 @@ public final class HibernateSheets {
                 }
                 Duration delay = retryPolicy.delayAfter(attempt);
                 int failedAttempt = attempt;
-                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets request " + requestId
+                LOG.warning(() -> "hibernate.sheets request " + requestId
                         + " failed (attempt " + failedAttempt + "), retrying in " + delay.toMillis() + " ms: "
                         + e.getMessage());
                 sleep(delay);

@@ -4,6 +4,7 @@ import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
 import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
 import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
+import io.github.prasunmondal.hibernatesheets.internal.Log;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.transport.Transport;
 
@@ -51,7 +52,7 @@ public final class SheetProperties {
 
     private static final Pattern SPREADSHEET_URL = Pattern.compile("/spreadsheets/d/([a-zA-Z0-9_-]+)");
 
-    private static final System.Logger LOG = System.getLogger(SheetProperties.class.getName());
+    private static final Log LOG = Log.get(SheetProperties.class);
 
     private final String scriptUrl;
     private final Transport transport;
@@ -259,7 +260,7 @@ public final class SheetProperties {
                 b.cache(SqliteResponseCache.open(cacheFile), cacheStrategy, cacheExpiry);
             } catch (HibernateSheetsException e) {
                 // Caching is an optimisation: without it every request still works.
-                LOG.log(System.Logger.Level.WARNING, () -> "hibernate.sheets cache disabled: " + e.getMessage());
+                LOG.warning(() -> "hibernate.sheets cache disabled: " + e.getMessage());
             }
         }
         if (queueWindow != null) {

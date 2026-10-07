@@ -12,11 +12,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.logging.Logger;
 
 /** POJO entity for IT_Employees (column names differ in case, hence @JsonProperty). */
 public class Employee {
 
-    private static final System.Logger LOG = System.getLogger(Employee.class.getName());
+    private static final Logger LOG = Logger.getLogger(Employee.class.getName());
 
     public static final SheetProperties PROPERTIES = ItConfig.BASE_PROPERTIES.toBuilder()
             .tabName(TestData.EMPLOYEES)
@@ -26,9 +27,9 @@ public class Employee {
             .cacheFile(Path.of(System.getProperty("java.io.tmpdir"), "hibernate-sheets-it", "cache.db"))
             .queueRequests(Duration.ofMillis(20))
             .queueMaxOperations(50)
-            .preNetworkCall(call -> LOG.log(System.Logger.Level.DEBUG,
+            .preNetworkCall(call -> LOG.fine(
                     () -> "Employee request " + call.requestId() + " attempt " + call.attempt()))
-            .postNetworkCall(result -> LOG.log(System.Logger.Level.DEBUG,
+            .postNetworkCall(result -> LOG.fine(
                     () -> "Employee request " + result.call().requestId() + " took " + result.elapsed().toMillis()
                             + " ms" + (result.succeeded() ? "" : ", failed: " + result.failure().getMessage())))
             .build();
