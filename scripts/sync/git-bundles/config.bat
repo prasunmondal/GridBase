@@ -20,10 +20,10 @@ REM DOWNLOAD CONFIGURATION
 REM ------------------------------------------------------------
 
 REM Git project where the bundle will be applied
-set "DOWNLOAD_PROJECT_DIR=C:\Users\Prasun.mondal\StudioProjects\MBros_v3"
+set "DOWNLOAD_PROJECT_DIR=D:\Projects\GridBase"
 
 REM Directory where the bundle will be downloaded
-set "DOWNLOAD_BUNDLE_DIR=C:\Projects"
+set "DOWNLOAD_BUNDLE_DIR=C:\Users\prasu\Downloads"
 
 REM Branch/ref to apply from the bundle
 set "DOWNLOAD_BRANCH_NAME=main"
