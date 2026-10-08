@@ -4,9 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Java 17 Maven library (`io.github.prasunmondal:hibernate-sheets-client`) that is a typed client for
-the **hibernate.sheets** Google Apps Script engine (Google Sheets used as a database). The SDK is in
-`src/`. The engine's JS sources are checked in twice, `appscript/` (CRLF) and `server-appscript/` (LF),
+A Java 17 multi-module Maven build (parent `gridbase-parent` in the root `pom.xml`) for a typed client of
+the **hibernate.sheets** Google Apps Script engine (Google Sheets used as a database):
+- `gridbase/` — the SDK, artifact `io.github.prasunmondal:gridbase` (all paths below are under it).
+- `gridbase-android/` — artifact `gridbase-android`: `AndroidSqliteResponseCache` on
+  `android.database.sqlite`,
+  compiled against the `com.google.android:android:4.1.1.4` stubs (`provided`; they throw "Stub!" if run,
+  so this module has no JVM tests — verify on a device). Ships an R8 keep rule in `META-INF/proguard/`.
+
+The version lives in the parent and both modules' `<parent>` blocks — change all three together.
+The engine's JS sources are checked in twice, `appscript/` (CRLF) and `server-appscript/` (LF),
 with identical content — keep them in sync (`diff -rq --strip-trailing-cr appscript/backend
 server-appscript/backend`). Engine changes only reach a live deployment after redeploying it.
 Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-datatype-jsr310` +
@@ -14,34 +21,34 @@ Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-d
 `java.net.HttpURLConnection`.
 Main code must stay Android-compatible (API 26): no `System.Logger`, `java.net.http`, or JDK 9+ library
 methods such as `List.of` / `Stream.toList()` / `String.isBlank()` — use `internal.Compat` / `internal.Log`.
-The `animal-sniffer` check (phase `process-classes`) fails the build otherwise; language features
-(records, `var`, pattern `instanceof`) are fine because D8 desugars them.
+The `animal-sniffer` check (phase `process-classes`) fails the build otherwise (it runs on both
+modules); language features (records, `var`, pattern `instanceof`) are fine because D8 desugars them.
 
 ## Commands
 
 ```bash
-mvn test                              # unit tests (no network)
-mvn test -Dtest=RequestContractTest   # one test class
-mvn test -Dtest=RequestContractTest#someMethod
-mvn package                           # jar + sources jar
-mvn install                           # into ~/.m2 for consuming projects
+mvn test                                          # unit tests of both modules (no network)
+mvn test -pl gridbase -Dtest=RequestContractTest  # one test class
+mvn test -pl gridbase -Dtest=RequestContractTest#someMethod
+mvn package                                       # jars + sources jars
+mvn install                                       # both artifacts into ~/.m2 for consuming projects
 ```
 
 ### Integration tests (`src/test/java/.../integrationTests/*IT.java`)
 
 - There is **no failsafe plugin** in `pom.xml`, so `*IT` classes are not run by `mvn test` or
   `mvn verify` (despite what the `ItConfig` Javadoc says). Run them explicitly:
-  `mvn test -Dtest=InsertIT` (or `-Dtest='*IT'`).
+  `mvn test -pl gridbase -Dtest=InsertIT` (or `-Dtest='*IT'`).
 - They hit a **live** Apps Script deployment and spreadsheet by default (see `ItConfig`). Override with
   `-Dhs.endpoint=... -Dhs.spreadsheetId=... -Dhs.timeZone=...` or env vars
   `HS_ENDPOINT` / `HS_SPREADSHEET_ID` / `HS_TIME_ZONE`.
 - They only touch worksheets prefixed `IT_`; `TestData.resetAll()` reseeds `IT_Employees` /
   `IT_Departments` before each test. `SchemaOperationsIT` leaves an `IT_Created_<timestamp>` sheet
   behind each run (the engine cannot delete worksheets).
-- Local emulator: `node src/test/emulator/engine-emulator.js <path-to-appscript-dir> [port]` runs the
+- Local emulator: `node gridbase/src/test/emulator/engine-emulator.js <path-to-appscript-dir> [port]` runs the
   real engine source in Node with in-memory Sheets; point tests at
   `-Dhs.endpoint=http://127.0.0.1:8765/macros/s/LOCAL/exec`, e.g.
-  `node src/test/emulator/engine-emulator.js server-appscript`. Use it to test engine changes before
+  `node gridbase/src/test/emulator/engine-emulator.js server-appscript`. Use it to test engine changes before
   deploying; it stubs `SpreadsheetApp`, `ContentService` and `LockService` (requests are serial there).
 - `integrationTests/Test1.java` matches surefire's default `Test*` include pattern, so it **does**
   run under plain `mvn test` and makes a live network call.
@@ -78,21 +85,27 @@ Opt-in via `SheetProperties.shallCache(true)` (or `HibernateSheets.Builder.cache
 `HibernateSheets.execute`, fully read-only requests are keyed by SHA-256 of the serialized operations
 and the raw engine reply is stored in a `ResponseCache`, tagged with the worksheets read. The store is
 chosen by `SheetProperties.cacheBackend(CacheBackend)` (or a custom one via `cacheStore(...)`):
-`SQLITE` (`SqliteResponseCache`, one shared connection per file), `JOURNAL` (`JournalResponseCache`:
+`SQLITE` (`SqliteResponseCache`, JDBC, one shared connection per file), `ANDROID_SQLITE`
+(`AndroidSqliteResponseCache` in `gridbase-android`, opened by reflection from `CacheBackend` because the
+core cannot depend on it), `JOURNAL` (`JournalResponseCache`:
 pure Java, entries in memory + CRC-framed append-only file replayed on open, auto-compacted — for
-Android, where `libsqlitejdbc.so` may be missing), `MEMORY` (`InMemoryResponseCache`) and the default
-`AUTO` (journal at `<cacheFile>.journal` on Android or when SQLite throws `LinkageError`, else SQLite).
+Android without the android module), `MEMORY` (`InMemoryResponseCache`) and the default `AUTO` (JVM: SQLITE;
+Android: ANDROID_SQLITE if its class is present, else JOURNAL; any `LinkageError` → journal at
+`<cacheFile>.journal`). Both SQLite stores extend `SqlResponseCache`, which owns the schema and every
+statement; drivers only implement its small `Sql` interface — change SQL there, once.
 Every store is shared per path within the JVM via its `open(Path)`. Nothing outside `cache/` may
-reference `SqliteResponseCache`, so the class (and `org.sqlite`) is only loaded when SQLite is used.
-Hits are re-parsed by `ResponseParser`, so POJO mapping is unchanged and pre/post network actions don't fire. Any non-read-only request invalidates its worksheets (even if
-it fails). Writes from clients **without** the same cache file are invisible until expiry — that's why
+reference `SqliteResponseCache`, so the class (and `org.sqlite`, which Android apps may exclude) is only
+loaded when SQLite is used.
+Hits are re-parsed by `ResponseParser`, so POJO mapping is unchanged and pre/post network actions don't
+fire. Any non-read-only request invalidates its worksheets (even if it fails). Writes from clients
+**without** the same cache file are invisible until expiry — that's why
 `TestData.resetAll()` invalidates `Employee`'s cache. `CacheExpiry` (ttl / dailyAt, combined with `or`)
 sets freshness; `CacheStrategy.NETWORK_FIRST` falls back to stale entries only on transport/retryable
 errors. Cache I/O failures are logged and never fail a request.
 
 Caching behaviour is pinned by `src/test/java/.../cachingTests` (run with
-`mvn test -Dtest='Cache*Test'`; add `-Dhs.cacheBackend=JOURNAL|MEMORY|SQLITE` to run them against another
-store — under `MEMORY` the 3 tests that need a file on disk are expected to fail). They use
+`mvn test -pl gridbase -Dtest='Cache*Test'`; add `-Dhs.cacheBackend=JOURNAL|MEMORY|SQLITE` to run them
+against another store — under `MEMORY` the 3 tests that need a file on disk are expected to fail). They use
 `FakeSheetsEngine` (in-memory engine with real rows; `editDirectly`, `goOffline`,
 `failRequestsTouching`) and a `MutableClock` passed via `SheetProperties.clock(...)` — never sleep to
 test expiry. `SheetRequest.forceRefresh()` → `HibernateSheets.executeRefreshing` / `Planned.forceRefresh`:

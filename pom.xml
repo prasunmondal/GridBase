@@ -8,12 +8,12 @@
 
     <!-- Maven Coordinates -->
     <groupId>io.github.prasunmondal</groupId>
-    <artifactId>gridbase</artifactId>
-    <version>0.1.0</version>
-    <packaging>jar</packaging>
+    <artifactId>gridbase-parent</artifactId>
+    <version>0.2.0</version>
+    <packaging>pom</packaging>
 
     <!-- Project Metadata -->
-    <name>GridBase</name>
+    <name>GridBase Parent</name>
     <description>
         Java SDK for using Google Sheets as a lightweight database through the GridBase engine.
     </description>
@@ -46,6 +46,11 @@
         <tag>HEAD</tag>
     </scm>
 
+    <modules>
+        <module>gridbase</module>
+        <module>gridbase-android</module>
+    </modules>
+
     <!-- Properties -->
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
@@ -55,116 +60,91 @@
         <junit.version>5.11.4</junit.version>
     </properties>
 
-    <!-- Dependencies -->
-    <dependencies>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
-            <version>${jackson.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.xerial</groupId>
-            <artifactId>sqlite-jdbc</artifactId>
-            <version>3.53.4.0</version>
-        </dependency>
-
-        <!-- Test -->
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${junit.version}</version>
-            <scope>test</scope>
-        </dependency>
-
-    </dependencies>
-
     <!-- Build -->
     <build>
+        <pluginManagement>
+            <plugins>
+
+                <!-- Java 17 -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                    </configuration>
+                </plugin>
+
+                <!-- Android: main code may only use APIs available on Android API 26 (Android 8.0).
+                     The ignored classes are bytecode features that D8 desugars (records, lambdas, string concat). -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>animal-sniffer-maven-plugin</artifactId>
+                    <version>1.24</version>
+                    <configuration>
+                        <signature>
+                            <groupId>net.sf.androidscents.signature</groupId>
+                            <artifactId>android-api-level-26</artifactId>
+                            <version>8.0.0_r2</version>
+                        </signature>
+                        <ignores>
+                            <ignore>java.lang.Record</ignore>
+                            <ignore>java.lang.runtime.*</ignore>
+                            <ignore>java.lang.invoke.*</ignore>
+                        </ignores>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>android-api</id>
+                            <phase>process-classes</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- Tests -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.2</version>
+                </plugin>
+
+                <!-- Sources JAR -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.3.1</version>
+                    <executions>
+                        <execution>
+                            <id>attach-sources</id>
+                            <goals>
+                                <goal>jar-no-fork</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+                <!-- Javadoc JAR -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.11.2</version>
+                    <executions>
+                        <execution>
+                            <id>attach-javadocs</id>
+                            <goals>
+                                <goal>jar</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+            </plugins>
+        </pluginManagement>
+
         <plugins>
-
-            <!-- Java 17 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
-                <configuration>
-                    <release>${maven.compiler.release}</release>
-                </configuration>
-            </plugin>
-
-            <!-- Android: main code may only use APIs available on Android API 26 (Android 8.0).
-                 The ignored classes are bytecode features that D8 desugars (records, lambdas, string concat). -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>animal-sniffer-maven-plugin</artifactId>
-                <version>1.24</version>
-                <configuration>
-                    <signature>
-                        <groupId>net.sf.androidscents.signature</groupId>
-                        <artifactId>android-api-level-26</artifactId>
-                        <version>8.0.0_r2</version>
-                    </signature>
-                    <ignores>
-                        <ignore>java.lang.Record</ignore>
-                        <ignore>java.lang.runtime.*</ignore>
-                        <ignore>java.lang.invoke.*</ignore>
-                    </ignores>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>android-api</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Tests -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.2</version>
-            </plugin>
-
-            <!-- Sources JAR -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-source-plugin</artifactId>
-                <version>3.3.1</version>
-                <executions>
-                    <execution>
-                        <id>attach-sources</id>
-                        <goals>
-                            <goal>jar-no-fork</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Javadoc JAR -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.11.2</version>
-                <executions>
-                    <execution>
-                        <id>attach-javadocs</id>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -184,7 +164,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Central -->
+            <!-- Maven Central: publishes the parent and every module as one bundle -->
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>

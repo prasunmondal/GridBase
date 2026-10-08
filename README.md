@@ -46,19 +46,23 @@ also runs on Android (API 26+); the build checks this with animal-sniffer.
 ### Android
 
 - Make calls off the main thread (Android throws `NetworkOnMainThreadException`).
-- The response cache works on Android with no setup: the default `CacheBackend.AUTO` uses the pure-Java
-  `JournalResponseCache` there (no native library, so no `dlopen failed: library "libsqlitejdbc.so" not
-  found`). The journal goes to `<app cache dir>/hibernate-sheets/cache.db.journal`; to keep it out of the
-  cache dir (which Android may clear under storage pressure), pass
+- For the response cache, add `gridbase-android` (see [Install](#install)). The default `CacheBackend.AUTO`
+  then uses Android's own SQLite (`android.database.sqlite`) via `AndroidSqliteResponseCache`: nothing
+  native is shipped, so there is no `dlopen failed: library "libsqlitejdbc.so" not found`, and no
+  `Context` is needed. The database goes to `<app cache dir>/hibernate-sheets/cache.db`; to keep it out
+  of the cache dir (which Android may clear under storage pressure), pass
   `.cacheFile(new File(context.getFilesDir(), "hibernate-sheets.db").toPath())`.
-- Since the journal needs no native code, you can drop `sqlite-jdbc` from an Android build:
+- Without `gridbase-android`, `AUTO` falls back to the pure-Java `JournalResponseCache`
+  (`<cacheFile>.journal`), so caching still works.
+- Android never needs `sqlite-jdbc`; drop it to save the native libraries:
 
   ```kotlin
   implementation("io.github.prasunmondal:gridbase:<version>") { exclude(group = "org.xerial", module = "sqlite-jdbc") }
+  implementation("io.github.prasunmondal:gridbase-android:<version>")
   ```
 
-- If you do choose `CacheBackend.SQLITE` on Android and minify with R8, keep the SQLite driver (its
-  native code calls back into it by name):
+- `gridbase-android` ships its own R8 keep rule. If you do choose `CacheBackend.SQLITE` on Android and
+  minify with R8, keep the SQLite driver (its native code calls back into it by name):
 
   ```
   -keep class org.sqlite.** { *; }
@@ -71,22 +75,37 @@ also runs on Android (API 26+); the build checks this with animal-sniffer.
 
 ## Install
 
-The project is a plain Maven library (`io.github.prasunmondal:hibernate-sheets-client`).
+Two artifacts, same version:
 
-```bash
-mvn install          # into ~/.m2 for local projects
+| Artifact | What |
+|---|---|
+| `io.github.prasunmondal:gridbase` | The SDK (any JVM, Android API 26+). |
+| `io.github.prasunmondal:gridbase-android` | Android only: response cache on the platform's SQLite. Depends on `gridbase`. |
+
+Maven Central:
+
+```kotlin
+implementation("io.github.prasunmondal:gridbase:0.2.0")
+implementation("io.github.prasunmondal:gridbase-android:0.2.0")   // Android apps
 ```
 
 ```xml
 <dependency>
   <groupId>io.github.prasunmondal</groupId>
-  <artifactId>hibernate-sheets-client</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <artifactId>gridbase</artifactId>
+  <version>0.2.0</version>
 </dependency>
 ```
 
-To share it without Maven Central, push the repo to GitHub and consume it via
-[JitPack](https://jitpack.io) or GitHub Packages.
+[JitPack](https://jitpack.io) — since 0.2.0 the repository has two modules, so JitPack names each
+artifact separately (**up to 0.1.x it was `com.github.prasunmondal:GridBase:<tag>`**):
+
+```kotlin
+implementation("com.github.prasunmondal.GridBase:gridbase:<tag>")
+implementation("com.github.prasunmondal.GridBase:gridbase-android:<tag>")
+```
+
+Locally: `mvn install` (from the repository root) puts both into `~/.m2`; use `mavenLocal()` in Gradle.
 
 ---
 
@@ -390,17 +409,46 @@ Pick the store with `cacheBackend(...)`, or pass your own `ResponseCache` with `
 
 | `CacheBackend` | Store | Use it when |
 |---|---|---|
-| `AUTO` (default) | SQLite on the JVM; journal on Android, or wherever the SQLite native library can't be loaded (`<cacheFile>.journal`) | You don't want to think about it. |
+| `AUTO` (default) | JVM: `SQLITE`. Android: `ANDROID_SQLITE` if `gridbase-android` is present, else `JOURNAL`. If the SQLite library can't be loaded at all, `JOURNAL` (`<cacheFile>.journal`). | You don't want to think about it. |
 | `SQLITE` | `SqliteResponseCache` — SQLite database at `cacheFile` | Several processes share the cache, or it is large. Needs `sqlite-jdbc` and a native library for the platform. |
+| `ANDROID_SQLITE` | `AndroidSqliteResponseCache` (in `gridbase-android`) — Android's own SQLite at `cacheFile`, same file format as `SQLITE` | Android (the default there). Disk-backed, so large caches don't cost memory; safe across processes. |
 | `JOURNAL` | `JournalResponseCache` — pure Java: entries held in memory, every change appended to `cacheFile` and replayed on start | Android, or anywhere without native code. Reads never touch the disk; a crash mid-write only loses that write (records are CRC-checked); the file is compacted automatically. One process per file; all live replies are kept in memory. |
 | `MEMORY` | `InMemoryResponseCache` — nothing written to disk | Short-lived processes, tests. `cacheFile` is just a name: clients with the same name share entries. |
 
 ```java
-// Android: explicit journal in files dir (survives cache clearing)
+// Android: platform SQLite in the files dir (survives cache clearing)
 .shallCache(true)
-.cacheBackend(CacheBackend.JOURNAL)
-.cacheFile(new File(context.getFilesDir(), "sheets.journal").toPath())
+.cacheBackend(CacheBackend.ANDROID_SQLITE)
+.cacheFile(new File(context.getFilesDir(), "sheets.db").toPath())
 ```
+
+Any other store plugs in through `cacheStore(...)` by implementing `ResponseCache` (6 methods). For
+example with Room, a table `(cacheKey PK, reply, cachedAt, expiresAt)` plus a tag table
+`(cacheKey, spreadsheetId, worksheet)` and a DAO:
+
+```java
+class RoomResponseCache implements ResponseCache {
+    private final CacheDao dao;                         // from your RoomDatabase
+    RoomResponseCache(CacheDao dao) { this.dao = dao; }
+
+    public Optional<Entry> get(String key) {
+        CachedReply r = dao.find(key);
+        return r == null ? Optional.empty() : Optional.of(new Entry(r.reply,
+                Instant.ofEpochMilli(r.cachedAt), Instant.ofEpochMilli(r.expiresAt)));
+    }
+    public void put(String key, String reply, Instant cachedAt, Instant expiresAt, Collection<SheetRef> sheets) {
+        dao.replace(new CachedReply(key, reply, cachedAt.toEpochMilli(), expiresAt.toEpochMilli()), sheets);  // @Transaction
+    }
+    public int invalidate(String spreadsheetId, String worksheet) { return dao.deleteBySheet(spreadsheetId, worksheet); }
+    public int purgeExpired(Instant now) { return dao.deleteExpired(now.toEpochMilli()); }
+    public void clear() { dao.deleteAll(); }
+    public void close() { }
+}
+
+// .shallCache(true).cacheStore(new RoomResponseCache(db.cacheDao()))
+```
+
+Room queries the database off the main thread only, which matches how the SDK must be called anyway.
 
 ### What is cached
 
@@ -640,7 +688,7 @@ Requests only combine when they go through the same client — the same `Hiberna
 - **`ServerException`** carries the engine's message, JS exception type, Apps Script stack trace and
   debug entries.
 - **Custom transport**: implement `Transport` (one method) for your own HTTP stack or to stub the
-  engine in tests (`FakeTransport` in `src/test` is an example).
+  engine in tests (`FakeTransport` in `gridbase/src/test` is an example).
 
 ### Retries
 
@@ -694,7 +742,8 @@ mvn test       # 162 unit tests, no network: request contract, response parsing,
                # isolation, cache, threads),
                # and the HTTP redirect flow against an in-process server
 mvn package
-mvn test -Dtest='io.github.prasunmondal.hibernatesheets.cachingTests.*'   # just the caching suite
+mvn test -pl gridbase -Dtest='Cache*Test'                       # just the caching suite
+mvn test -pl gridbase -Dtest='Cache*Test' -Dhs.cacheBackend=JOURNAL # ... against another store
 ```
 
 The caching suite (`cachingTests`, 87 tests) runs the real SDK and SQLite cache against an
