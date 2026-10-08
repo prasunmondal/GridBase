@@ -112,13 +112,13 @@ public final class Repository<T> {
     }
 
     /** Updates the row with the entity's key, or inserts it if there is none. */
-    public T save(T entity) {
-        return requests.save(entity).execute();
+    public T upsert(T entity) {
+        return requests.upsert(entity).execute();
     }
 
     /** Saves all entities in a single request; the engine writes them together at the end. */
-    public List<T> saveAll(Collection<? extends T> entities) {
-        return requests.saveAll(entities).execute();
+    public List<T> upsertAll(Collection<? extends T> entities) {
+        return requests.upsertAll(entities).execute();
     }
 
     /** @return number of rows deleted */
@@ -179,7 +179,7 @@ public final class Repository<T> {
             return worksheet.insertAll(entities).request().map(r -> r.as(type));
         }
 
-        public SheetRequest<T> save(T entity) {
+        public SheetRequest<T> upsert(T entity) {
             return worksheet.upsert()
                     .key(meta.keyColumn(), keyOf(entity))
                     .set(withoutKey(entity))
@@ -188,7 +188,7 @@ public final class Repository<T> {
         }
 
         /** All upserts in one engine request: written together, all-or-nothing. */
-        public SheetRequest<List<T>> saveAll(Collection<? extends T> entities) {
+        public SheetRequest<List<T>> upsertAll(Collection<? extends T> entities) {
             if (entities.isEmpty()) {
                 return SheetRequest.completed(Compat.listOf());
             }

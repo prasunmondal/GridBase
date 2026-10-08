@@ -42,8 +42,8 @@ class CacheInvalidationTest extends CachingTestBase {
                 write("clone", p -> p.worksheet().cloneRows().where(eq("sku", "P1")).set("sku", "P1-copy").execute()),
                 write("clear", p -> p.worksheet().clear().execute()),
                 write("addColumns", p -> p.worksheet().addColumns("discount").execute()),
-                write("repository save", p -> products(p).save(Product.of("P1", "Saved", 1, "1.00"))),
-                write("repository saveAll", p -> products(p).saveAll(List.of(
+                write("repository save", p -> products(p).upsert(Product.of("P1", "Saved", 1, "1.00"))),
+                write("repository saveAll", p -> products(p).upsertAll(List.of(
                         Product.of("P1", "Saved", 1, "1.00"), Product.of("P6", "Jam", 3, "3.00")))),
                 write("repository insert", p -> products(p).insert(Product.of("P7", "Salt", 9, "0.50"))),
                 write("repository deleteById", p -> products(p).deleteById("P2")),
@@ -189,7 +189,7 @@ class CacheInvalidationTest extends CachingTestBase {
         Repository<Product> repo = products(p);
 
         assertEquals("Tea", repo.findById("P1").orElseThrow().name);
-        repo.save(Product.of("P1", "Masala Tea", 40, "5.00"));
+        repo.upsert(Product.of("P1", "Masala Tea", 40, "5.00"));
         assertEquals("Masala Tea", repo.findById("P1").orElseThrow().name);
         repo.deleteById("P1");
         assertEquals(false, repo.findById("P1").isPresent());

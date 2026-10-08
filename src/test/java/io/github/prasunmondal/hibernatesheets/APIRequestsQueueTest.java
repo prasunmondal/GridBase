@@ -214,7 +214,7 @@ class APIRequestsQueueTest {
         y.sheet = "k2";
 
         APIRequestsQueue reqQ = new APIRequestsQueue();
-        Queued<List<Echo>> saved = repo.requests().saveAll(List.of(x, y)).queue(reqQ);
+        Queued<List<Echo>> saved = repo.requests().upsertAll(List.of(x, y)).queue(reqQ);
         Queued<List<Echo>> none = repo.requests().insertAll(List.of()).queue(reqQ);
         Queued<Boolean> exists = repo.requests().existsById("k1").queue(reqQ);
         reqQ.execute();

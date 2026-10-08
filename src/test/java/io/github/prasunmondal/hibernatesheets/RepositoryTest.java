@@ -37,12 +37,12 @@ class RepositoryTest {
     }
 
     @Test
-    void saveIsUpsertByKey() {
+    void upsertIsUpsertByKey() {
         FakeTransport t = FakeTransport.replying(
                 "\"rowCount\":1,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"Asha\",\"creditLimit\":500}]");
         HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();
 
-        Customer saved = db.repository(Customer.class).save(new Customer("C1", "Asha", 500));
+        Customer saved = db.repository(Customer.class).upsert(new Customer("C1", "Asha", 500));
 
         var op = t.lastOperation();
         assertEquals("UPSERT", op.path("type").asText());
@@ -54,13 +54,13 @@ class RepositoryTest {
     }
 
     @Test
-    void saveAllIsOneRequest() {
+    void upsertAllIsOneRequest() {
         FakeTransport t = FakeTransport.replying(
                 "\"rowCount\":1,\"rows\":[{\"customer_id\":\"C1\"}]",
                 "\"rowCount\":1,\"rows\":[{\"customer_id\":\"C2\"}]");
         HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();
         var saved = db.repository(Customer.class)
-                .saveAll(List.of(new Customer("C1", "A", 1), new Customer("C2", "B", 2)));
+                .upsertAll(List.of(new Customer("C1", "A", 1), new Customer("C2", "B", 2)));
         assertEquals(1, t.requests.size());
         assertEquals(2, saved.size());
     }

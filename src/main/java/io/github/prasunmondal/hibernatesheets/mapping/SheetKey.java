@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 
 /**
  * Marks the field (or record component) that uniquely identifies a row. Used by
- * {@link Repository#findById}, {@link Repository#save} and {@link Repository#deleteById}.
+ * {@link Repository#findById}, {@link Repository#upsert} and {@link Repository#deleteById}.
  * The engine does not enforce uniqueness; keeping values unique is the caller's responsibility.
  */
 @Documented

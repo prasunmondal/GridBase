@@ -44,7 +44,7 @@ class RepositoryIT {
         Queued<List<Employee>> all = employees.requests().findAll().queue(reqQ);
         Queued<Optional<Department>> eng = departments.requests().findById("ENG").queue(reqQ);
         Queued<Employee> saved = employees.requests()
-                .save(Employee.of("E011", "Queued Hire", "Engineering", 90000, LocalDate.of(2026, 7, 1)))
+                .upsert(Employee.of("E011", "Queued Hire", "Engineering", 90000, LocalDate.of(2026, 7, 1)))
                 .queue(reqQ);
         Queued<Boolean> exists = employees.requests().existsById("E011").queue(reqQ);
         assertEquals(EMPLOYEE_COUNT, employeeCount());          // nothing sent yet
@@ -113,10 +113,10 @@ class RepositoryIT {
     }
 
     @Test
-    @DisplayName("save() inserts a new entity")
-    void saveInserts() {
+    @DisplayName("upsert() inserts a new entity")
+    void upsertInserts() {
         Employee e = Employee.of("E011", "Ishaan Roy", "Engineering", 91000, LocalDate.of(2026, 4, 1));
-        employees.save(e);
+        employees.upsert(e);
         assertEquals(EMPLOYEE_COUNT + 1, employeeCount());
         Employee back = employees.findById("E011").orElseThrow();
         assertEquals("Ishaan Roy", back.name);
@@ -124,13 +124,13 @@ class RepositoryIT {
     }
 
     @Test
-    @DisplayName("save() on an existing key updates in place")
-    void saveUpdates() {
+    @DisplayName("upsert() on an existing key updates in place")
+    void upsertUpdates() {
         Employee e = employees.findById("E003").orElseThrow();
         e.salary = 97000L;
         e.designation = "Engineer II";
         e.notes = "Promoted 2026";
-        employees.save(e);
+        employees.upsert(e);
 
         assertEquals(EMPLOYEE_COUNT, employeeCount());
         Employee back = employees.findById("E003").orElseThrow();
@@ -141,23 +141,23 @@ class RepositoryIT {
     }
 
     @Test
-    @DisplayName("save() writes null fields as blank cells")
-    void saveNullField() {
+    @DisplayName("upsert() writes null fields as blank cells")
+    void upsertNullField() {
         Employee e = employees.findById("E001").orElseThrow();
         e.email = null;
-        employees.save(e);
+        employees.upsert(e);
         assertTrue(TestData.employee("E001").isBlank("Email"));
     }
 
     @Test
-    @DisplayName("saveAll() mixes inserts and updates in ONE request")
-    void saveAll() {
+    @DisplayName("upsertAll() mixes inserts and updates in ONE request")
+    void upsertAll() {
         Employee existing = employees.findById("E002").orElseThrow();
         existing.city = "Chennai";
         Employee fresh1 = Employee.of("E011", "New One", "Sales", 50000, LocalDate.of(2026, 5, 1));
         Employee fresh2 = Employee.of("E012", "New Two", "Sales", 52000, LocalDate.of(2026, 5, 2));
 
-        List<Employee> saved = employees.saveAll(List.of(existing, fresh1, fresh2));
+        List<Employee> saved = employees.upsertAll(List.of(existing, fresh1, fresh2));
 
         assertEquals(3, saved.size());
         assertEquals(EMPLOYEE_COUNT + 2, employeeCount());
@@ -187,16 +187,16 @@ class RepositoryIT {
     }
 
     @Test
-    @DisplayName("record entities: find, save (update + insert), delete")
+    @DisplayName("record entities: find, upsert (update + insert), delete")
     void recordEntity() {
         Department eng = departments.findById("ENG").orElseThrow();
         assertEquals("Engineering", eng.deptName());
         assertEquals(5000000L, eng.budget().longValue());
 
-        departments.save(new Department("ENG", "Engineering", 5500000L, "Bangalore", "E001"));
+        departments.upsert(new Department("ENG", "Engineering", 5500000L, "Bangalore", "E001"));
         assertEquals(5500000L, departments.findById("ENG").orElseThrow().budget().longValue());
 
-        departments.save(new Department("OPS", "Operations", 900000L, "Pune", "E007"));
+        departments.upsert(new Department("OPS", "Operations", 900000L, "Pune", "E007"));
         assertEquals(DEPARTMENT_COUNT + 1, departments.findAll().size());
 
         assertEquals(1, departments.deleteById("OPS"));
@@ -210,6 +210,6 @@ class RepositoryIT {
         assertThrows(IllegalArgumentException.class, () -> employees.findById(""));
         Employee noKey = Employee.of("E011", "x", "HR", 1, LocalDate.now());
         noKey.employeeId = null;
-        assertThrows(IllegalArgumentException.class, () -> employees.save(noKey));
+        assertThrows(IllegalArgumentException.class, () -> employees.upsert(noKey));
     }
 }
