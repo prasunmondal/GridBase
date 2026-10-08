@@ -5,7 +5,6 @@ import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -19,31 +18,18 @@ import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * SQLite store for engine replies to read-only requests. Each entry is tagged with the worksheets it
- * read, so a write through any client using the same file invalidates it. Writes made elsewhere
- * (the Sheets UI, other clients without this cache) are only picked up when entries expire, or after
- * {@link #invalidate} / {@link #clear}.
+ * {@link ResponseCache} in a SQLite database (via {@code sqlite-jdbc}, which needs a native library for
+ * the platform; on devices without it use {@link JournalResponseCache}).
  *
  * <p>One instance (one JDBC connection) per database file per JVM, shared via {@link #open}.
  * Thread-safe.</p>
  */
-public final class SqliteResponseCache implements AutoCloseable {
+public final class SqliteResponseCache implements ResponseCache {
 
     private static final Map<Path, SqliteResponseCache> OPEN = new ConcurrentHashMap<>();
 
     private final Path file;
     private final Connection connection;
-
-    /** A cached reply and when it stops being fresh. */
-    public record Entry(String reply, Instant cachedAt, Instant expiresAt) {
-        public boolean isFresh(Instant now) {
-            return expiresAt.isAfter(now);
-        }
-    }
-
-    /** A worksheet an entry was read from. */
-    public record SheetRef(String spreadsheetId, String worksheet) {
-    }
 
     private SqliteResponseCache(Path file) {
         this.file = file;
@@ -81,27 +67,11 @@ public final class SqliteResponseCache implements AutoCloseable {
                 ? existing : new SqliteResponseCache(k));
     }
 
-    /**
-     * {@code ~/.hibernate-sheets/cache.db}; on Android, which has no usable home directory,
-     * {@code <java.io.tmpdir>/hibernate-sheets/cache.db} (Android points {@code java.io.tmpdir} at the
-     * app's cache dir).
-     */
-    public static Path defaultFile() {
-        if (isAndroid()) {
-            return Paths.get(System.getProperty("java.io.tmpdir"), "hibernate-sheets", "cache.db");
-        }
-        return Paths.get(System.getProperty("user.home"), ".hibernate-sheets", "cache.db");
-    }
-
-    private static boolean isAndroid() {
-        return "Dalvik".equals(System.getProperty("java.vm.name"))
-                || String.valueOf(System.getProperty("java.vendor")).contains("Android");
-    }
-
     public Path file() {
         return file;
     }
 
+    @Override
     public synchronized Optional<Entry> get(String key) {
         try (PreparedStatement ps = connection.prepareStatement(
                 "SELECT reply, cached_at, expires_at FROM hs_response WHERE cache_key = ?")) {
@@ -118,6 +88,7 @@ public final class SqliteResponseCache implements AutoCloseable {
         }
     }
 
+    @Override
     public synchronized void put(String key, String reply, Instant cachedAt, Instant expiresAt,
                                  Collection<SheetRef> sheets) {
         inTransaction(() -> {
@@ -144,7 +115,7 @@ public final class SqliteResponseCache implements AutoCloseable {
         }, "write");
     }
 
-    /** Drops every entry that read {@code worksheet}. @return number of entries removed */
+    @Override
     public synchronized int invalidate(String spreadsheetId, String worksheet) {
         try (PreparedStatement ps = connection.prepareStatement(
                 "DELETE FROM hs_response WHERE cache_key IN (SELECT cache_key FROM hs_response_sheet "
@@ -157,7 +128,7 @@ public final class SqliteResponseCache implements AutoCloseable {
         }
     }
 
-    /** Drops entries that expired before {@code now}. NETWORK_FIRST can no longer fall back to them. */
+    @Override
     public synchronized int purgeExpired(Instant now) {
         try (PreparedStatement ps = connection.prepareStatement("DELETE FROM hs_response WHERE expires_at <= ?")) {
             ps.setLong(1, now.toEpochMilli());
@@ -167,6 +138,7 @@ public final class SqliteResponseCache implements AutoCloseable {
         }
     }
 
+    @Override
     public synchronized void clear() {
         try (Statement s = connection.createStatement()) {
             s.executeUpdate("DELETE FROM hs_response");

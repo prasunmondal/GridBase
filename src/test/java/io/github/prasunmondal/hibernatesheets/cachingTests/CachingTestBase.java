@@ -2,7 +2,8 @@ package io.github.prasunmondal.hibernatesheets.cachingTests;
 
 import io.github.prasunmondal.hibernatesheets.RetryPolicy;
 import io.github.prasunmondal.hibernatesheets.SheetProperties;
-import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
+import io.github.prasunmondal.hibernatesheets.cache.CacheBackend;
+import io.github.prasunmondal.hibernatesheets.cache.ResponseCache;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
 import io.github.prasunmondal.hibernatesheets.result.Row;
 import org.junit.jupiter.api.AfterEach;
@@ -77,7 +78,7 @@ abstract class CachingTestBase {
     void closeCaches() {
         for (SheetProperties p : created) {
             try {
-                p.cache().ifPresent(SqliteResponseCache::close);
+                p.cache().ifPresent(ResponseCache::close);
             } catch (RuntimeException ignored) {
                 // already closed by the test
             }
@@ -93,6 +94,8 @@ abstract class CachingTestBase {
                 .timeZone(IST)
                 .retryPolicy(RetryPolicy.none())
                 .clock(clock)
+                // -Dhs.cacheBackend=JOURNAL|MEMORY|SQLITE runs the behaviour suite against another store
+                .cacheBackend(CacheBackend.valueOf(System.getProperty("hs.cacheBackend", "AUTO")))
                 .cacheFile(dir.resolve("cache.db"));
     }
 

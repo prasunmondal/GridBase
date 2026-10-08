@@ -3,7 +3,7 @@ package io.github.prasunmondal.hibernatesheets.cachingTests;
 import io.github.prasunmondal.hibernatesheets.SheetProperties;
 import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
-import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
+import io.github.prasunmondal.hibernatesheets.cache.ResponseCache;
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -192,7 +192,7 @@ class CacheExpiryBehaviourTest extends CachingTestBase {
     @DisplayName("purgeExpired removes only entries that have expired")
     void purgeExpiredRemovesOnlyExpired() {
         SheetProperties p = cached(b -> b.cacheExpiry(CacheExpiry.ttlMinutes(10)));
-        SqliteResponseCache cache = p.cache().orElseThrow();
+        ResponseCache cache = p.cache().orElseThrow();
 
         nameOf(p, "P1");                                          // t = 0, expires t = 10
         clock.advance(Duration.ofMinutes(8));

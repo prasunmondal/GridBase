@@ -1,9 +1,10 @@
 package io.github.prasunmondal.hibernatesheets;
 
 import io.github.prasunmondal.hibernatesheets.internal.Compat;
+import io.github.prasunmondal.hibernatesheets.cache.CacheBackend;
 import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
-import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
+import io.github.prasunmondal.hibernatesheets.cache.ResponseCache;
 import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
 import io.github.prasunmondal.hibernatesheets.internal.Log;
 import io.github.prasunmondal.hibernatesheets.mapping.Repository;
@@ -70,6 +71,8 @@ public final class SheetProperties {
     private final CacheStrategy cacheStrategy;
     private final CacheExpiry cacheExpiry;
     private final Path cacheFile;
+    private final CacheBackend cacheBackend;
+    private final ResponseCache cacheStore;
     private final Duration queueWindow;
     private final int queueMaxOperations;
     private final Clock clock;
@@ -116,6 +119,8 @@ public final class SheetProperties {
         this.cacheStrategy = b.cacheStrategy;
         this.cacheExpiry = b.cacheExpiry;
         this.cacheFile = b.cacheFile;
+        this.cacheBackend = b.cacheBackend;
+        this.cacheStore = b.cacheStore;
         this.queueWindow = b.queueWindow;
         this.queueMaxOperations = b.queueMaxOperations;
         this.clock = b.clock;
@@ -148,6 +153,8 @@ public final class SheetProperties {
         b.cacheStrategy = cacheStrategy;
         b.cacheExpiry = cacheExpiry;
         b.cacheFile = cacheFile;
+        b.cacheBackend = cacheBackend;
+        b.cacheStore = cacheStore;
         b.queueWindow = queueWindow;
         b.queueMaxOperations = queueMaxOperations;
         b.clock = clock;
@@ -226,6 +233,15 @@ public final class SheetProperties {
         return cacheFile;
     }
 
+    public CacheBackend cacheBackend() {
+        return cacheBackend;
+    }
+
+    /** The store set with {@link Builder#cacheStore}, or {@code null} to open {@link #cacheBackend()} at {@link #cacheFile()}. */
+    public ResponseCache cacheStore() {
+        return cacheStore;
+    }
+
     /** {@code null} when requests are not queued. */
     public Duration queueWindow() {
         return queueWindow;
@@ -236,7 +252,7 @@ public final class SheetProperties {
     }
 
     /** The response cache when {@link #shallCache()} is on, e.g. to {@code invalidate} after external edits. */
-    public Optional<SqliteResponseCache> cache() {
+    public Optional<ResponseCache> cache() {
         return client().cache();
     }
 
@@ -258,10 +274,12 @@ public final class SheetProperties {
         postNetworkCallActions.forEach(b::postNetworkCall);
         if (shallCache) {
             try {
-                b.cache(SqliteResponseCache.open(cacheFile), cacheStrategy, cacheExpiry);
+                ResponseCache store = cacheStore != null ? cacheStore : cacheBackend.open(cacheFile);
+                b.cache(store, cacheStrategy, cacheExpiry);
             } catch (HibernateSheetsException | LinkageError e) {
-                // Caching is an optimisation: without it every request still works. LinkageError covers a
-                // platform where the SQLite driver or its native library is unavailable (e.g. some Android ABIs).
+                // Caching is an optimisation: without it every request still works. LinkageError covers an explicit
+                // CacheBackend.SQLITE where the driver or its native library is unavailable (CacheBackend.AUTO falls
+                // back to the journal by itself).
                 LOG.warning(() -> "hibernate.sheets cache disabled: " + e.getMessage());
             }
         }
@@ -291,7 +309,9 @@ public final class SheetProperties {
         private boolean shallCache;
         private CacheStrategy cacheStrategy = CacheStrategy.CACHE_FIRST;
         private CacheExpiry cacheExpiry = CacheExpiry.ttlMinutes(10);
-        private Path cacheFile = SqliteResponseCache.defaultFile();
+        private Path cacheFile = CacheBackend.defaultFile();
+        private CacheBackend cacheBackend = CacheBackend.AUTO;
+        private ResponseCache cacheStore;
         private Duration queueWindow;
         private int queueMaxOperations = 50;
         private Clock clock = Clock.systemUTC();
@@ -334,8 +354,8 @@ public final class SheetProperties {
         }
 
         /**
-         * Cache replies to reads (SELECT, GET_COLUMNS) in SQLite and reuse them. Writes through any
-         * client sharing the cache file invalidate the worksheets they touch. Off by default.
+         * Cache replies to reads (SELECT, GET_COLUMNS) and reuse them (see {@link #cacheBackend}).
+         * Writes through any client sharing the cache file invalidate the worksheets they touch. Off by default.
          */
         public Builder shallCache(boolean shallCache) {
             this.shallCache = shallCache;
@@ -358,9 +378,32 @@ public final class SheetProperties {
             return detached();
         }
 
-        /** SQLite database file. Defaults to {@code ~/.hibernate-sheets/cache.db}. */
+        /**
+         * Where the cache lives: the SQLite database or journal file (for {@link CacheBackend#MEMORY}, just a
+         * name; clients with the same name share entries). Defaults to {@code ~/.hibernate-sheets/cache.db}
+         * ({@code <app cache dir>/hibernate-sheets/cache.db} on Android). {@link CacheBackend#AUTO} keeps its
+         * journal next to it as {@code <file>.journal}.
+         */
         public Builder cacheFile(Path file) {
             this.cacheFile = Objects.requireNonNull(file);
+            return detached();
+        }
+
+        /**
+         * How cached replies are stored. Defaults to {@link CacheBackend#AUTO}: SQLite on the JVM, the
+         * pure-Java journal on Android (or wherever the SQLite native library can't be loaded).
+         */
+        public Builder cacheBackend(CacheBackend backend) {
+            this.cacheBackend = Objects.requireNonNull(backend);
+            return detached();
+        }
+
+        /**
+         * Use this store instead of opening {@link #cacheBackend} at {@link #cacheFile}, e.g. your own
+         * {@link ResponseCache} implementation. Still needs {@link #shallCache shallCache(true)}.
+         */
+        public Builder cacheStore(ResponseCache store) {
+            this.cacheStore = Objects.requireNonNull(store);
             return detached();
         }
 

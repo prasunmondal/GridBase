@@ -10,7 +10,8 @@ the **hibernate.sheets** Google Apps Script engine (Google Sheets used as a data
 with identical content — keep them in sync (`diff -rq --strip-trailing-cr appscript/backend
 server-appscript/backend`). Engine changes only reach a live deployment after redeploying it.
 Runtime dependencies are deliberately limited to `jackson-databind` + `jackson-datatype-jsr310` +
-`sqlite-jdbc` (response cache); HTTP uses `java.net.HttpURLConnection`.
+`sqlite-jdbc` (SQLite response cache; optional at runtime — Android apps may exclude it); HTTP uses
+`java.net.HttpURLConnection`.
 Main code must stay Android-compatible (API 26): no `System.Logger`, `java.net.http`, or JDK 9+ library
 methods such as `List.of` / `Stream.toList()` / `String.isBlank()` — use `internal.Compat` / `internal.Log`.
 The `animal-sniffer` check (phase `process-classes`) fails the build otherwise; language features
@@ -75,16 +76,23 @@ Request pipeline (nothing is sent until `execute()` / `fetch()`):
 
 Opt-in via `SheetProperties.shallCache(true)` (or `HibernateSheets.Builder.cache(...)`). In
 `HibernateSheets.execute`, fully read-only requests are keyed by SHA-256 of the serialized operations
-and the raw engine reply is stored in SQLite (`SqliteResponseCache`, one shared connection per file),
-tagged with the worksheets read. Hits are re-parsed by `ResponseParser`, so POJO mapping is unchanged
-and pre/post network actions don't fire. Any non-read-only request invalidates its worksheets (even if
+and the raw engine reply is stored in a `ResponseCache`, tagged with the worksheets read. The store is
+chosen by `SheetProperties.cacheBackend(CacheBackend)` (or a custom one via `cacheStore(...)`):
+`SQLITE` (`SqliteResponseCache`, one shared connection per file), `JOURNAL` (`JournalResponseCache`:
+pure Java, entries in memory + CRC-framed append-only file replayed on open, auto-compacted — for
+Android, where `libsqlitejdbc.so` may be missing), `MEMORY` (`InMemoryResponseCache`) and the default
+`AUTO` (journal at `<cacheFile>.journal` on Android or when SQLite throws `LinkageError`, else SQLite).
+Every store is shared per path within the JVM via its `open(Path)`. Nothing outside `cache/` may
+reference `SqliteResponseCache`, so the class (and `org.sqlite`) is only loaded when SQLite is used.
+Hits are re-parsed by `ResponseParser`, so POJO mapping is unchanged and pre/post network actions don't fire. Any non-read-only request invalidates its worksheets (even if
 it fails). Writes from clients **without** the same cache file are invisible until expiry — that's why
 `TestData.resetAll()` invalidates `Employee`'s cache. `CacheExpiry` (ttl / dailyAt, combined with `or`)
 sets freshness; `CacheStrategy.NETWORK_FIRST` falls back to stale entries only on transport/retryable
 errors. Cache I/O failures are logged and never fail a request.
 
 Caching behaviour is pinned by `src/test/java/.../cachingTests` (run with
-`mvn test -Dtest='io.github.prasunmondal.hibernatesheets.cachingTests.*'`). They use
+`mvn test -Dtest='Cache*Test'`; add `-Dhs.cacheBackend=JOURNAL|MEMORY|SQLITE` to run them against another
+store — under `MEMORY` the 3 tests that need a file on disk are expected to fail). They use
 `FakeSheetsEngine` (in-memory engine with real rows; `editDirectly`, `goOffline`,
 `failRequestsTouching`) and a `MutableClock` passed via `SheetProperties.clock(...)` — never sleep to
 test expiry. `SheetRequest.forceRefresh()` → `HibernateSheets.executeRefreshing` / `Planned.forceRefresh`:

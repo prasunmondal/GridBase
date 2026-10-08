@@ -4,8 +4,8 @@ import io.github.prasunmondal.hibernatesheets.internal.Compat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.prasunmondal.hibernatesheets.cache.CacheExpiry;
 import io.github.prasunmondal.hibernatesheets.cache.CacheStrategy;
-import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache;
-import io.github.prasunmondal.hibernatesheets.cache.SqliteResponseCache.SheetRef;
+import io.github.prasunmondal.hibernatesheets.cache.ResponseCache;
+import io.github.prasunmondal.hibernatesheets.cache.ResponseCache.SheetRef;
 import io.github.prasunmondal.hibernatesheets.exception.HibernateSheetsException;
 import io.github.prasunmondal.hibernatesheets.exception.ServerException;
 import io.github.prasunmondal.hibernatesheets.exception.TransportException;
@@ -81,7 +81,7 @@ public final class HibernateSheets {
     private final ResponseParser parser;
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
-    private final SqliteResponseCache cache;
+    private final ResponseCache cache;
     private final CacheStrategy cacheStrategy;
     private final CacheExpiry cacheExpiry;
     private final Clock clock;
@@ -173,7 +173,7 @@ public final class HibernateSheets {
     }
 
     /** The response cache, if one is configured. */
-    public Optional<SqliteResponseCache> cache() {
+    public Optional<ResponseCache> cache() {
         return Optional.ofNullable(cache);
     }
 
@@ -331,13 +331,13 @@ public final class HibernateSheets {
     }
 
     private record CachedRead(List<Operation> operations, String key,
-                              Optional<SqliteResponseCache.Entry> entry, boolean hit) {
+                              Optional<ResponseCache.Entry> entry, boolean hit) {
     }
 
     private CachedRead lookup(List<Operation> operations) {
         String key = cacheKey(operations);
-        Optional<SqliteResponseCache.Entry> read = quietly("read", () -> cache.get(key));
-        Optional<SqliteResponseCache.Entry> entry = read != null ? read : Optional.empty();
+        Optional<ResponseCache.Entry> read = quietly("read", () -> cache.get(key));
+        Optional<ResponseCache.Entry> entry = read != null ? read : Optional.empty();
         boolean hit = cacheStrategy == CacheStrategy.CACHE_FIRST
                 && entry.isPresent() && entry.get().isFresh(clock.instant());
         if (hit) {
@@ -367,7 +367,7 @@ public final class HibernateSheets {
         boolean networkFailure = cause instanceof TransportException
                 || (cause instanceof HibernateSheetsException e && e.isRetryable());
         if (cacheStrategy == CacheStrategy.NETWORK_FIRST && networkFailure && read.entry().isPresent()) {
-            SqliteResponseCache.Entry stale = read.entry().get();
+            ResponseCache.Entry stale = read.entry().get();
             LOG.warning(() -> "hibernate.sheets request failed, serving cached reply from "
                     + stale.cachedAt() + ": " + cause.getMessage());
             return parser.parse(stale.reply(), read.operations());
@@ -545,7 +545,7 @@ public final class HibernateSheets {
         private Supplier<String> accessToken;
         private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
         private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
-        private SqliteResponseCache cache;
+        private ResponseCache cache;
         private CacheStrategy cacheStrategy;
         private CacheExpiry cacheExpiry;
         private Clock clock = Clock.systemUTC();
@@ -565,8 +565,11 @@ public final class HibernateSheets {
             return this;
         }
 
-        /** Cache read-only requests in {@code cache}; writes through this client invalidate affected worksheets. */
-        public Builder cache(SqliteResponseCache cache, CacheStrategy strategy, CacheExpiry expiry) {
+        /**
+         * Cache read-only requests in {@code cache} (any {@link ResponseCache}, e.g.
+         * {@code CacheBackend.JOURNAL.open(path)}); writes through this client invalidate affected worksheets.
+         */
+        public Builder cache(ResponseCache cache, CacheStrategy strategy, CacheExpiry expiry) {
             this.cache = Objects.requireNonNull(cache, "cache");
             this.cacheStrategy = Objects.requireNonNull(strategy, "strategy");
             this.cacheExpiry = Objects.requireNonNull(expiry, "expiry");

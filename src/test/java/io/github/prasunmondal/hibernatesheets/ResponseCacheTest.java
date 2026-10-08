@@ -179,7 +179,7 @@ class ResponseCacheTest {
                 .cacheExpiry(CacheExpiry.ttlMinutes(5))
                 .cacheFile(dir.resolve("props.db"))
                 .build();
-        track(props.cache().orElseThrow());
+        track((SqliteResponseCache) props.cache().orElseThrow());
         props.worksheet().select().fetch();
         props.worksheet().select().fetch();
         assertEquals(1, transport.requests.size());

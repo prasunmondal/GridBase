@@ -46,11 +46,19 @@ also runs on Android (API 26+); the build checks this with animal-sniffer.
 ### Android
 
 - Make calls off the main thread (Android throws `NetworkOnMainThreadException`).
-- The response cache works on Android: `sqlite-jdbc` bundles native libraries for arm, arm64, x86
-  and x86_64. By default the database goes to `<app cache dir>/hibernate-sheets/cache.db`; to keep it
-  out of the cache dir (which Android may clear under storage pressure), pass
+- The response cache works on Android with no setup: the default `CacheBackend.AUTO` uses the pure-Java
+  `JournalResponseCache` there (no native library, so no `dlopen failed: library "libsqlitejdbc.so" not
+  found`). The journal goes to `<app cache dir>/hibernate-sheets/cache.db.journal`; to keep it out of the
+  cache dir (which Android may clear under storage pressure), pass
   `.cacheFile(new File(context.getFilesDir(), "hibernate-sheets.db").toPath())`.
-- With R8/minification on, keep the SQLite driver (its native code calls back into it by name):
+- Since the journal needs no native code, you can drop `sqlite-jdbc` from an Android build:
+
+  ```kotlin
+  implementation("io.github.prasunmondal:gridbase:<version>") { exclude(group = "org.xerial", module = "sqlite-jdbc") }
+  ```
+
+- If you do choose `CacheBackend.SQLITE` on Android and minify with R8, keep the SQLite driver (its
+  native code calls back into it by name):
 
   ```
   -keep class org.sqlite.** { *; }
@@ -93,7 +101,7 @@ Operation (immutable record)            ← transport-neutral description of one
   │  RequestSerializer                  ← exact JSON contract of RequestParser.js
   ▼
 HibernateSheets.execute(List<Operation>)  ← one HTTP request, retry policy
-  │  SqliteResponseCache (optional)     ← reads served from / stored in SQLite; writes invalidate
+  │  ResponseCache (optional)           ← reads served from / stored in SQLite, a journal or memory; writes invalidate
   │  RequestQueue (optional)            ← requests made close together → one HTTP call
   │  pre/post network-call actions      ← run around every HTTP attempt
   │  Transport (HttpTransport default)  ← POST /exec, follow Apps Script 302, auth header
@@ -107,7 +115,7 @@ ResponseParser                          ← success → typed results; success:f
 | Package | Contents |
 |---|---|
 | `hibernatesheets` | `HibernateSheets` (client), `SheetProperties`, `Worksheet`, `Batch`/`Ref`/`BatchResult`, `RetryPolicy`, `NetworkCall`/`NetworkCallResult` |
-| `.cache` | `SqliteResponseCache`, `CacheExpiry`, `CacheStrategy` |
+| `.cache` | `ResponseCache` + `SqliteResponseCache` / `JournalResponseCache` / `InMemoryResponseCache`, `CacheBackend`, `CacheExpiry`, `CacheStrategy` |
 | `.query` | `Filters` (static factory), `Filter`, `Sort` |
 | `.spec` | Operation builders and the `Operation` record |
 | `.result` | `Row`, `RowsResult`, `ColumnsResult`, `AddColumnsResult`, `ClearResult`, `WorksheetCreated` |
@@ -293,7 +301,7 @@ public class Employee {
 | `connectTimeout` / `requestTimeout` | 10 s / 90 s | |
 | `accessToken` | none | OAuth token supplier. |
 | `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
-| `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db` | See [Response cache](#response-cache). |
+| `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile`, `cacheBackend`, `cacheStore` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db`, `AUTO`, none | See [Response cache](#response-cache). |
 | `clock` | system clock | Clock used to decide cache freshness; inject one in tests to control expiry. |
 | `queueRequests`, `queueMaxOperations` | off, 50 | See [Automatic request queue](#automatic-request-queue-time-window). For sending on demand, see [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so). |
 
@@ -361,7 +369,7 @@ SheetProperties.builder()
 
 ## Response cache
 
-Replies to read-only requests can be cached in a local SQLite database and reused, so repeated
+Replies to read-only requests can be cached locally and reused, so repeated
 queries don't go to Apps Script (which is slow and quota-limited).
 
 ```java
@@ -371,7 +379,27 @@ SheetProperties.builder()
         .cacheStrategy(CacheStrategy.CACHE_FIRST)
         .cacheExpiry(CacheExpiry.ttlMinutes(30))
         .cacheFile(Path.of("/var/cache/myapp/sheets.db"))   // optional
+        .cacheBackend(CacheBackend.AUTO)                     // optional, see below
         .build();
+```
+
+### Where it is stored
+
+Pick the store with `cacheBackend(...)`, or pass your own `ResponseCache` with `cacheStore(...)`
+(e.g. one backed by Room); everything else (keys, expiry, strategies, invalidation) is the same.
+
+| `CacheBackend` | Store | Use it when |
+|---|---|---|
+| `AUTO` (default) | SQLite on the JVM; journal on Android, or wherever the SQLite native library can't be loaded (`<cacheFile>.journal`) | You don't want to think about it. |
+| `SQLITE` | `SqliteResponseCache` — SQLite database at `cacheFile` | Several processes share the cache, or it is large. Needs `sqlite-jdbc` and a native library for the platform. |
+| `JOURNAL` | `JournalResponseCache` — pure Java: entries held in memory, every change appended to `cacheFile` and replayed on start | Android, or anywhere without native code. Reads never touch the disk; a crash mid-write only loses that write (records are CRC-checked); the file is compacted automatically. One process per file; all live replies are kept in memory. |
+| `MEMORY` | `InMemoryResponseCache` — nothing written to disk | Short-lived processes, tests. `cacheFile` is just a name: clients with the same name share entries. |
+
+```java
+// Android: explicit journal in files dir (survives cache clearing)
+.shallCache(true)
+.cacheBackend(CacheBackend.JOURNAL)
+.cacheFile(new File(context.getFilesDir(), "sheets.journal").toPath())
 ```
 
 ### What is cached
@@ -382,8 +410,8 @@ SheetProperties.builder()
 - The engine's reply is stored and mapped to `Row`s / POJOs exactly like a live reply, so typed
   getters, entity mapping and time-zone handling behave the same.
 - Engine errors are never cached.
-- The database survives restarts; one SQLite connection per file is shared inside a JVM, and several
-  processes can use the same file.
+- SQLite and journal stores survive restarts; one instance per file is shared inside a JVM. Only
+  SQLite supports several processes using the same file.
 
 ### Expiry
 
@@ -419,7 +447,7 @@ cachedAt -> cachedAt.plus(5, ChronoUnit.MINUTES)                  // or any lamb
   sheet changed:
 
 ```java
-SqliteResponseCache cache = Employee.PROPERTIES.cache().orElseThrow();
+ResponseCache cache = Employee.PROPERTIES.cache().orElseThrow();
 cache.invalidate(spreadsheetId, "Employees");   // drop cached queries for one worksheet
 cache.clear();                                   // drop everything
 cache.purgeExpired(Instant.now());               // reclaim space (NETWORK_FIRST loses its fallback)
@@ -448,7 +476,7 @@ Without `SheetProperties`, attach a cache to a client directly:
 ```java
 HibernateSheets db = HibernateSheets.builder()
         .endpoint(...)
-        .cache(SqliteResponseCache.open(Path.of("sheets.db")), CacheStrategy.CACHE_FIRST,
+        .cache(CacheBackend.AUTO.open(Path.of("sheets.db")), CacheStrategy.CACHE_FIRST,
                CacheExpiry.ttlMinutes(10))
         .build();
 ```
