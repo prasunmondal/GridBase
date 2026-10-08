@@ -1,3 +1,5 @@
+REM ERRORS ====== hibernate.sheets cache disabled: dlopen failed: library "libsqlitejdbc.so" not found
+
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
