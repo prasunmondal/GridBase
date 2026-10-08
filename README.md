@@ -214,12 +214,26 @@ public class Customer {
 }
 
 Repository<Customer> customers = db.repository(Customer.class);
-customers.save(c);                      // UPSERT on customer_id
-customers.saveAll(list);                // all upserts in ONE request
+customers.insert(c);                    // append a row, no key check
+customers.insertAll(list);              // append all rows in ONE request
+customers.upsert(c);                    // UPSERT on customer_id: update that row, or insert it
+customers.upsertAll(list);              // all upserts in ONE request (all-or-nothing)
+customers.save(c);                      // REPLACE the sheet's rows with just c
+customers.saveAll(list);                // REPLACE the sheet's rows with list (empty list → clear)
 Optional<Customer> c = customers.findById("C-42");
 List<Customer> vip  = customers.findWhere(gt("creditLimit", 10_000));
 customers.deleteById("C-42");
 ```
+
+| Method | Sends | Existing rows |
+|---|---|---|
+| `insert` / `insertAll` | one `INSERT` | kept; duplicate keys are possible |
+| `upsert` / `upsertAll` | one `UPSERT` per entity, keyed on `@SheetKey` (key must be non-null) | row with the same key is updated, others kept |
+| `save` / `saveAll` | `CLEAR_WORKSHEET` then `INSERT`, in one request | all deleted (header kept) |
+
+`save` / `saveAll` are **not atomic**: `CLEAR_WORKSHEET` is a schema op that the engine applies
+immediately, so if the insert then fails (e.g. an unknown column) the sheet is left empty. Request
+queues always send them in a call of their own.
 
 Records work too (`public record Product(@SheetKey String sku, String title) {}`). Column names follow
 Jackson property names; use `@JsonProperty("Header Text")` and `@JsonIgnore` as usual. The engine does
@@ -473,7 +487,7 @@ Where they come from:
 
 | Source | Requests |
 |---|---|
-| `repository.requests()` | `findAll()`, `findWhere(...)`, `findFirstWhere(...)`, `findById(id)`, `existsById(id)`, `insert(e)`, `insertAll(list)`, `save(e)`, `saveAll(list)`, `deleteById(id)`, `delete(e)` — same results as the `Repository` methods |
+| `repository.requests()` | `findAll()`, `findWhere(...)`, `findFirstWhere(...)`, `findById(id)`, `existsById(id)`, `insert(e)`, `insertAll(list)`, `upsert(e)`, `upsertAll(list)`, `save(e)`, `saveAll(list)`, `deleteById(id)`, `delete(e)`, `deleteAll()` — same results as the `Repository` methods |
 | any operation spec | `.request()` (its raw result), or shortcut `.queue(reqQ)` — inserts, updates, deletes, upserts, clones, selects, schema ops |
 | select specs | `.request(Customer.class)` → `List<Customer>`, `.firstRequest()` / `.firstRequest(Customer.class)` → `Optional` |
 | your own code | `SheetRequest.of(client, operations, mapper)`, `SheetRequest.completed(value)`, and `.map(...)` on any request |
@@ -500,9 +514,10 @@ reqQ.execute();
   call each. Entities whose `SheetProperties` were derived by `tabName` only share a client.
 - **Each request succeeds or fails on its own.** If the engine rejects the combined call, it has
   written nothing; each request is then re-sent alone so only the faulty one fails. A network
-  failure fails every request in that call. A request made of several operations (`saveAll`) stays
+  failure fails every request in that call. A request made of several row operations (`upsertAll`) stays
   all-or-nothing.
-- **Split only when needed:** `create`, `clear` and `addColumns` go in a call of their own (the engine
+- **Split only when needed:** `create`, `clear` and `addColumns` (so also repository `save`,
+  `saveAll` and `deleteAll`) go in a call of their own (the engine
   applies them immediately, so they can't be safely re-sent), and a call holds at most 100 operations
   (`new APIRequestsQueue(maxOperationsPerCall)`). Order is kept across the split.
 - **Errors.** After every handle is completed, `execute()` throws `QueueExecutionException` if any

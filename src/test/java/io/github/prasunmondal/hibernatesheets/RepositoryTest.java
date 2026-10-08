@@ -66,6 +66,52 @@ class RepositoryTest {
     }
 
     @Test
+    void saveAllClearsThenInsertsInOneRequest() {
+        FakeTransport t = FakeTransport.replying(
+                "\"worksheet\":\"Customers\",\"rowsCleared\":5,\"columnsCleared\":3",
+                "\"rowCount\":2,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"A\"},{\"customer_id\":\"C2\",\"name\":\"B\"}]");
+        HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();
+
+        List<Customer> saved = db.repository(Customer.class)
+                .saveAll(List.of(new Customer("C1", "A", 1), new Customer("C2", "B", 2)));
+
+        assertEquals(1, t.requests.size());
+        var ops = t.requests.get(0).path("operations");
+        assertEquals(2, ops.size());
+        assertEquals("CLEAR_WORKSHEET", ops.get(0).path("type").asText());
+        assertEquals("INSERT", ops.get(1).path("type").asText());
+        assertEquals("Customers", ops.get(1).path("worksheet").asText());
+        assertEquals(2, ops.get(1).path("rows").size());
+        assertEquals(List.of("C1", "C2"), List.of(saved.get(0).id, saved.get(1).id));
+    }
+
+    @Test
+    void saveReplacesSheetWithOneEntity() {
+        FakeTransport t = FakeTransport.replying(
+                "\"worksheet\":\"Customers\",\"rowsCleared\":5,\"columnsCleared\":3",
+                "\"rowCount\":1,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"Asha\",\"creditLimit\":500}]");
+        HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();
+
+        Customer saved = db.repository(Customer.class).save(new Customer("C1", "Asha", 500));
+
+        var ops = t.requests.get(0).path("operations");
+        assertEquals("CLEAR_WORKSHEET", ops.get(0).path("type").asText());
+        assertEquals("INSERT", ops.get(1).path("type").asText());
+        assertEquals(500, saved.creditLimit.intValue());
+    }
+
+    @Test
+    void saveAllOfNothingOnlyClears() {
+        FakeTransport t = FakeTransport.replying("\"worksheet\":\"Customers\",\"rowsCleared\":5,\"columnsCleared\":3");
+        HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();
+
+        assertTrue(db.repository(Customer.class).saveAll(List.of()).isEmpty());
+
+        assertEquals(1, t.requests.get(0).path("operations").size());
+        assertEquals("CLEAR_WORKSHEET", t.lastOperation().path("type").asText());
+    }
+
+    @Test
     void recordsWithExplicitSpreadsheet() {
         FakeTransport t = FakeTransport.replying("\"rowCount\":1,\"rows\":[{\"sku\":\"P1\",\"title\":\"Tea\"}]");
         HibernateSheets db = HibernateSheets.builder().transport(t).defaultSpreadsheetId("S").build();

@@ -34,7 +34,8 @@ import java.util.Optional;
  * }
  *
  * Repository<Customer> customers = db.repository(Customer.class);
- * customers.save(c);                               // upsert by customer_id
+ * customers.upsert(c);                             // update the row with c's customer_id, or insert it
+ * customers.saveAll(list);                         // replace every row in the sheet with list
  * Optional<Customer> c = customers.findById("C-42");
  * }</pre>
  */
@@ -116,9 +117,26 @@ public final class Repository<T> {
         return requests.upsert(entity).execute();
     }
 
-    /** Saves all entities in a single request; the engine writes them together at the end. */
+    /** Upserts all entities in a single request; the engine writes them together at the end. */
     public List<T> upsertAll(Collection<? extends T> entities) {
         return requests.upsertAll(entities).execute();
+    }
+
+    /**
+     * Replaces the worksheet's contents with {@code entity}: deletes every data row, then inserts it.
+     * Not atomic — see {@link Requests#saveAll}.
+     */
+    public T save(T entity) {
+        return requests.save(entity).execute();
+    }
+
+    /**
+     * Replaces the worksheet's contents with {@code entities}: deletes every data row (header kept), then
+     * inserts them, in one request. An empty collection just clears the sheet. Not atomic — see
+     * {@link Requests#saveAll}.
+     */
+    public List<T> saveAll(Collection<? extends T> entities) {
+        return requests.saveAll(entities).execute();
     }
 
     /** @return number of rows deleted */
@@ -206,6 +224,26 @@ public final class Repository<T> {
                 }
                 return saved;
             });
+        }
+
+        public SheetRequest<T> save(T entity) {
+            Objects.requireNonNull(entity, "entity");
+            return saveAll(Compat.listOf(entity)).map(saved -> saved.get(0));
+        }
+
+        /**
+         * CLEAR_WORKSHEET followed by INSERT, in one engine request. CLEAR is a schema op: the engine
+         * applies it immediately, not at commit, so if the insert fails (e.g. an unknown column) the sheet
+         * is left empty. For the same reason the request is always sent on its own by both request queues.
+         */
+        public SheetRequest<List<T>> saveAll(Collection<? extends T> entities) {
+            Operation clear = worksheet.clear().toOperation();
+            if (entities.isEmpty()) {
+                return SheetRequest.of(client, Compat.listOf(clear), response -> Compat.listOf());
+            }
+            Operation insert = worksheet.insertAll(entities).toOperation();
+            return SheetRequest.of(client, Compat.listOf(clear, insert),
+                    response -> ((RowsResult) response.results().get(1)).as(type));
         }
 
         /** Resolves to the number of rows deleted. */

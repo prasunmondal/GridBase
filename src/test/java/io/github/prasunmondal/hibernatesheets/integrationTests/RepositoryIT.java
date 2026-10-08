@@ -51,10 +51,10 @@ class RepositoryIT {
 
         reqQ.execute();
 
-        assertEquals(EMPLOYEE_COUNT, all.get().size());         // read before the save in the same call
+        assertEquals(EMPLOYEE_COUNT, all.get().size());         // read before the upsert in the same call
         assertEquals("Engineering", eng.get().orElseThrow().deptName());
         assertEquals("Queued Hire", saved.get().name);
-        assertTrue(exists.get());                               // read after the save sees it
+        assertTrue(exists.get());                               // read after the upsert sees it
         assertEquals(EMPLOYEE_COUNT + 1, employeeCount());
     }
 
@@ -163,6 +163,30 @@ class RepositoryIT {
         assertEquals(EMPLOYEE_COUNT + 2, employeeCount());
         assertEquals("Chennai", employees.findById("E002").orElseThrow().city);
         assertEquals("New Two", employees.findById("E012").orElseThrow().name);
+    }
+
+    @Test
+    @DisplayName("saveAll() replaces every row with the given entities")
+    void saveAllReplaces() {
+        List<Employee> saved = employees.saveAll(List.of(
+                Employee.of("E101", "Only One", "Sales", 50000, LocalDate.of(2026, 5, 1)),
+                Employee.of("E102", "Only Two", "Sales", 52000, LocalDate.of(2026, 5, 2))));
+
+        assertEquals(2, saved.size());
+        assertEquals(2, employeeCount());
+        assertFalse(employees.findById("E001").isPresent());
+        assertEquals("Only Two", employees.findById("E102").orElseThrow().name);
+    }
+
+    @Test
+    @DisplayName("save() leaves only the given entity; saveAll(empty) clears the sheet")
+    void saveReplaces() {
+        employees.save(Employee.of("E101", "Sole", "HR", 40000, LocalDate.of(2026, 6, 1)));
+        assertEquals(1, employeeCount());
+        assertEquals("Sole", employees.findById("E101").orElseThrow().name);
+
+        assertTrue(employees.saveAll(List.of()).isEmpty());
+        assertEquals(0, employeeCount());
     }
 
     @Test
