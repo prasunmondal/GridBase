@@ -1,0 +1,2 @@
+Log the request details whenever there is a network call (if possible in red color)
+Add semi-detailed log for the consumers of the library for the events like serving from cache
