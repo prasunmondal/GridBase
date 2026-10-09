@@ -801,6 +801,23 @@ re-authorize the script. Open the `/exec` URL in a browser to see the page.
 
 ## 13. Logging, metrics and hooks
 
+### Log every request in red
+
+```java
+.logNetworkCalls()
+```
+
+Each HTTP attempt logs `GridBase >> <id> attempt n | ops | body=...` and its reply logs
+`GridBase << <id> OK in 1840 ms | 5.2 KB` (or `FAILED` / `ENGINE ERROR` with the reason). They are logged
+at `SEVERE` under the tag `GridBaseNetwork`, so Logcat shows them red (`Log.e`) and you can filter on
+`tag:GridBaseNetwork`; desktop IDE consoles show them red on stderr. Shorten or silence bodies with
+`.logNetworkCalls(NetworkLogger.defaults().maxBodyChars(0))`. Bodies contain your data, so prefer debug
+builds:
+
+```java
+.logNetworkCalls(BuildConfig.DEBUG ? NetworkLogger.defaults() : NetworkLogger.defaults().level(Level.OFF))
+```
+
 ### Log every call
 
 ```java

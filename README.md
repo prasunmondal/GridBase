@@ -386,6 +386,40 @@ SheetProperties.builder()
 - Reads served from the cache make no network call, so the hooks do not run for them.
 - The same hooks are available on `HibernateSheets.builder()` as `preNetworkCall` / `postNetworkCall`.
 
+### Log every network call
+
+`logNetworkCalls()` writes one line per HTTP request and one per reply, retries included. Cache hits
+make no call and log nothing.
+
+```java
+SheetProperties.builder()
+        ...
+        .logNetworkCalls()                                   // or HibernateSheets.builder().logNetworkCalls()
+        .build();
+```
+
+```
+GridBase >> e3357ec5 attempt 1 | 1 op: SELECT Customers | spreadsheet 1C8rsAWa... | 244 chars | body={"requestId":...}
+GridBase << e3357ec5 OK in 1840 ms | 5.2 KB
+```
+
+Lines go to the `java.util.logging` logger `GridBaseNetwork` at `SEVERE`, so they show **red**: on
+Android as `Log.e` (filter Logcat with `tag:GridBaseNetwork`), on the desktop on stderr (red in IntelliJ /
+Android Studio consoles). A failed attempt reads `FAILED in … ms: TransportException: …`, and a reply
+with `success:false` reads `ENGINE ERROR … : <engine message>`. Tune it with `NetworkLogger`:
+
+```java
+.logNetworkCalls(NetworkLogger.defaults()
+        .maxBodyChars(500)                 // 0 = summary only; default 2000
+        .maxResponseChars(1000)            // print replies too; default 0
+        .level(Level.INFO)                 // not red, if you prefer
+        .ansiColor(true)                   // ANSI red for plain terminals (not for Logcat / files)
+        .to(line -> Log.e("Sheets", line)))  // or any sink instead of java.util.logging
+```
+
+Request bodies contain the data you read and write (never the access token). Turn this on for
+debugging builds rather than in production.
+
 ---
 
 ## Response cache

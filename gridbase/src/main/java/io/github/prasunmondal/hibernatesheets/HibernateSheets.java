@@ -651,6 +651,21 @@ public final class HibernateSheets {
             return this;
         }
 
+        /**
+         * Logs every HTTP call (retries included) with {@link NetworkLogger#defaults()}: one red line per
+         * request and per reply, tagged {@value NetworkLogger#LOGGER_NAME}.
+         */
+        public Builder logNetworkCalls() {
+            return logNetworkCalls(NetworkLogger.defaults());
+        }
+
+        /** Logs every HTTP call with {@code logger}, e.g. {@code NetworkLogger.defaults().maxBodyChars(0)}. */
+        public Builder logNetworkCalls(NetworkLogger logger) {
+            Objects.requireNonNull(logger, "logger");
+            preNetworkCall(logger::before);
+            return postNetworkCall(logger::after);
+        }
+
         public HibernateSheets build() {
             return new HibernateSheets(this);
         }
