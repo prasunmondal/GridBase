@@ -58,7 +58,7 @@ REM ------------------------------------------------------------
 for %%I in ("%UPLOAD_PROJECT_DIR%") do set "REPO_NAME=%%~nxI"
 
 set "BUNDLE_FILE_NAME=%REPO_NAME%.bundle"
-set "UPLOAD_BUNDLE_FILE_PATH=%DOWNLOAD_BUNDLE_DIR%\%BUNDLE_FILE_NAME%"
+set "UPLOAD_BUNDLE_FILE_PATH=%UPLOAD_BUNDLE_DIR%\%BUNDLE_FILE_NAME%"
 
 
 echo Repository:

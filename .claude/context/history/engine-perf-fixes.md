@@ -1,3 +1,10 @@
+---
+status: HISTORICAL
+last_verified: 2026-09-30
+---
+> HISTORICAL: an undated engine review from the initial commit (2026-09-30), moved here from `appscript/`.
+> Current triage: `.claude/context/known-issues.md`. Do not treat it as current.
+
 # Quick Performance Fixes - Copy & Paste Ready
 
 ## Fix #1: Lazy Worksheet Loading (HIGHEST IMPACT)

@@ -702,7 +702,7 @@ Writes are not retried because a timed-out write may already be committed; opt i
 
 ## Engine issues
 
-These are in the Apps Script engine (`appscript/` / `server-appscript/`), not the SDK.
+These are in the Apps Script engine (`appscript/`), not the SDK.
 **Redeploy the engine** for the fixes to take effect on a live deployment.
 
 ### Fixed
@@ -735,7 +735,7 @@ Notes on the lock:
 ## Building and testing
 
 ```bash
-mvn test       # 162 unit tests, no network: request contract, response parsing,
+mvn test       # unit tests, no network: request contract, response parsing,
                # batching, retries, entity mapping, SheetProperties and network hooks,
                # cache expiry/strategies/invalidation against a temp SQLite file,
                # APIRequestsQueue and the automatic queue (combining, ordering,
@@ -746,7 +746,7 @@ mvn test -pl gridbase -Dtest='Cache*Test'                       # just the cachi
 mvn test -pl gridbase -Dtest='Cache*Test' -Dhs.cacheBackend=JOURNAL # ... against another store
 ```
 
-The caching suite (`cachingTests`, 87 tests) runs the real SDK and SQLite cache against an
+The caching suite (`cachingTests`) runs the real SDK and SQLite cache against an
 in-memory fake engine (`FakeSheetsEngine`) that holds real rows and can be edited "behind the SDK's
 back", go offline, or reject requests — so tests check data freshness, not only call counts:
 

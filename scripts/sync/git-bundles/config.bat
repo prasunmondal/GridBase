@@ -9,11 +9,12 @@ REM UPLOAD CONFIGURATION
 REM ------------------------------------------------------------
 
 REM Git project from which the bundle will be created
-set "UPLOAD_PROJECT_DIR=C:\Projects\GSheetDB"
+set "UPLOAD_PROJECT_DIR=C:\Projects\GridBase"
 
 REM Branch/ref to bundle
 set "UPLOAD_BRANCH_NAME=main"
 
+set "UPLOAD_BUNDLE_DIR=C:\Projects"
 
 REM ------------------------------------------------------------
 REM DOWNLOAD CONFIGURATION
