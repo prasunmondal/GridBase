@@ -3,6 +3,8 @@
 A Java 17+ library for the **hibernate.sheets** Apps Script engine. Other projects add one
 dependency and talk to Google Sheets through a typed, fluent API instead of hand-building JSON.
 
+Looking for how to do something specific? See the **[cookbook](COOKBOOK.md)**.
+
 ```java
 HibernateSheets db = HibernateSheets.builder()
         .endpoint("https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec")
