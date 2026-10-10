@@ -47,6 +47,16 @@ public final class Worksheet {
         return name;
     }
 
+    /**
+     * Erases every cached reply that read this worksheet, so its next reads go to the network. Only the
+     * cache is touched, not the sheet (that is {@link #clear()}).
+     *
+     * @return number of cache entries erased; 0 without a cache
+     */
+    public int clearCache() {
+        return client.cache().map(c -> c.invalidate(spreadsheetId, name)).orElse(0);
+    }
+
     /** SELECT; pass column names to return only those columns. */
     public SelectSpec select(String... columns) {
         return new SelectSpec(this).columns(columns);

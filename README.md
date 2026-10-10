@@ -560,15 +560,19 @@ cachedAt -> cachedAt.plus(5, ChronoUnit.MINUTES)                  // or any lamb
   (a timed-out write may still have been saved). Other worksheets are untouched.
 - Clients sharing the same cache file see each other's invalidations.
 - Changes made **outside** — in the Sheets UI, by Apps Script triggers, or by a client not using
-  this cache file — are only picked up when entries expire. Invalidate by hand when you know the
-  sheet changed:
+  this cache file — are only picked up when entries expire. Erase cached data by hand when you know
+  the sheet changed:
 
 ```java
-ResponseCache cache = Employee.PROPERTIES.cache().orElseThrow();
-cache.invalidate(spreadsheetId, "Employees");   // drop cached queries for one worksheet
-cache.clear();                                   // drop everything
-cache.purgeExpired(Instant.now());               // reclaim space (NETWORK_FIRST loses its fallback)
+Employees.clearTableCache();                     // GridBaseTable: every cached query on its tab
+Employee.PROPERTIES.worksheet().clearCache();    // same, from any Worksheet
+Employee.PROPERTIES.clearAllCache();             // every tab, every spreadsheet in the cache file
+Employee.PROPERTIES.cache().orElseThrow().purgeExpired(Instant.now()); // reclaim space (NETWORK_FIRST loses its fallback)
 ```
+
+  These only touch the cache, never the sheet (`worksheet.clear()` deletes the sheet's rows). Without a
+  cache they do nothing; if the cache store fails, they throw. `clearAllCache()` also erases entries of
+  other clients that share the same cache file.
 
 - If the cache itself fails (disk full, file locked, file can't be opened), the problem is logged and
   the request goes to the network as usual; caching never fails a request.

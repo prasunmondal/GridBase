@@ -53,4 +53,14 @@ public abstract class GridBaseTable<T> {
     public final Worksheet worksheet() {
         return repository().worksheet();
     }
+
+    /** Erases this table's cached replies ({@link Worksheet#clearCache()}); the sheet is not touched. */
+    public final int clearTableCache() {
+        return worksheet().clearCache();
+    }
+
+    /** Erases every cached reply in the store, for every table ({@link GridBase#clearAllCache()}). */
+    public final void clearAllCache() {
+        properties.clearAllCache();
+    }
 }

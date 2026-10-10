@@ -256,6 +256,11 @@ public final class SheetProperties {
         return client().cache();
     }
 
+    /** {@link GridBase#clearAllCache()}: erases every cached reply in the store, for every tab. */
+    public void clearAllCache() {
+        client().clearAllCache();
+    }
+
     private GridBase buildClient() {
         GridBase.Builder b = GridBase.builder()
                 .defaultSpreadsheetId(spreadsheetId)

@@ -26,7 +26,9 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
   falls back to stale entries **only** on transport or retryable errors.
 - `SheetRequest.forceRefresh()` → `GridBase.executeRefreshing` / `Planned.forceRefresh`
   skips the cache read, gives no stale fallback, and stores the fresh reply.
-- Cache I/O failures are logged and **never fail a request**.
+- Cache I/O failures are logged and **never fail a request**. The explicit erase calls
+  (`Worksheet.clearCache`, `GridBase.clearAllCache` / `SheetProperties.clearAllCache`, `GridBaseTable.clearTableCache`/`clearAllCache`)
+  are not requests: they throw store failures, and do nothing without a cache.
 
 ## Stores (`CacheBackend`)
 | Backend | Class | Notes |

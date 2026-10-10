@@ -695,9 +695,8 @@ Edits made outside this client (Sheets UI, triggers, other apps) only show up af
 stale entries yourself:
 
 ```java
-ResponseCache cache = Customer.PROPERTIES.cache().orElseThrow();
-cache.invalidate(spreadsheetId, "Customers");   // one worksheet
-cache.clear();                                   // everything
+Customer.PROPERTIES.worksheet().clearCache();   // one worksheet (GridBaseTable: Customers.clearTableCache())
+Customer.PROPERTIES.clearAllCache();            // everything
 ```
 
 ### Choose where the cache lives
@@ -978,7 +977,7 @@ Point your client at `http://127.0.0.1:8765/macros/s/LOCAL/exec`.
 | Upserted row has a blank key | Key given only in `where` | Use `.key(column, value)` |
 | Update/delete throws about missing `where` | Safety check | Add `where(...)` or call `.all()` |
 | Sheet empty after `saveAll` failed | `save*` clears first, not atomic | Use `upsertAll`, or validate before saving |
-| Old data after editing the sheet by hand | Cache only knows its own writes | `cache.invalidate(...)`, shorter expiry or `forceRefresh()` |
+| Old data after editing the sheet by hand | Cache only knows its own writes | `worksheet.clearCache()`, shorter expiry or `forceRefresh()` |
 | `Worksheet already exists` | `create()` isn't idempotent | See [Create it only if missing](#create-it-only-if-missing) |
 | Lost rows with many concurrent writers | Old engine without locking | Redeploy the current engine (it locks writes) |
 | Filters on field names find nothing | Filters use **column headers** | `eq("Credit Limit", ...)`, not `eq("creditLimit", ...)` |

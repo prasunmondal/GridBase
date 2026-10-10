@@ -177,6 +177,17 @@ public final class GridBase {
         return Optional.ofNullable(cache);
     }
 
+    /**
+     * Erases every cached reply in this client's store, for every spreadsheet and tab. Clients that use
+     * the same cache file share the store, so their entries are erased too. Does nothing without a cache;
+     * a store failure is thrown.
+     */
+    public void clearAllCache() {
+        if (cache != null) {
+            cache.clear();
+        }
+    }
+
     private CompletableFuture<ExecutionResponse> submit(List<Operation> operations, boolean async, boolean refresh) {
         Objects.requireNonNull(operations, "operations");
         if (operations.isEmpty()) {
