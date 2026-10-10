@@ -19,7 +19,7 @@ on devices ("dlopen failed"). Android therefore gets either the platform's own S
   instead of JDK 9+ library methods, `System.Logger` or `java.net.http`. Language features are fine
   because D8 desugars them (ADR-002).
 - **The core never references `gridbase-android` classes.** `CacheBackend` loads
-  `io.github.prasunmondal.gridbase.android.AndroidSqliteResponseCache` by name
+  `io.github.prasunmondal.hibernatesheets.android.AndroidSqliteResponseCache` by name
   (`ANDROID_SQLITE_CLASS`) and calls `open(Path)` reflectively. Renaming or moving that class or its
   `open` method breaks Android caching silently: `AUTO` falls back to the journal.
 - Android is detected through `java.vm.name == Dalvik` or a `java.vendor` containing "Android"

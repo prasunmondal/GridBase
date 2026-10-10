@@ -149,88 +149,37 @@ ResponseParser                          ← success → typed results; success:f
 ## API tour
 
 ```java
-import static io.github.prasunmondal.gridbase.query.Filters.*;
+import static io.github.prasunmondal.hibernatesheets.query.Filters.*;
 
 // SELECT
-List<Row> rows = orders.select().where(eq("customer", "C-7")).fetch();
-        List<Order> typed = orders.select().where(in("status", "OPEN", "HOLD")).fetch(Order.class);
-        Optional<Row> first = orders.select("id", "qty").where(eq("id", "A1")).fetchFirst();
+List<Row> rows      = orders.select().where(eq("customer", "C-7")).fetch();
+List<Order> typed   = orders.select().where(in("status", "OPEN", "HOLD")).fetch(Order.class);
+Optional<Row> first = orders.select("id", "qty").where(eq("id", "A1")).fetchFirst();
 
 // INSERT (Map, POJO or record; one or many rows, one sheet write)
-orders.
+orders.insert(Map.of("id", "A9", "qty", 4)).execute();
+orders.insertAll(listOfOrders).execute();
 
-        insert(Map.of("id", "A9","qty",4)).
+// UPDATE / DELETE — where(...) is mandatory unless you call all()
+int changed = orders.update()
+        .set("status", "SHIPPED")
+        .append("log", " | shipped")
+        .where(eq("id", "A9"))
+        .execute().count();
 
-        execute();
-orders.
-
-        insertAll(listOfOrders).
-
-        execute();
-
-        // UPDATE / DELETE — where(...) is mandatory unless you call all()
-        int changed = orders.update()
-                .set("status", "SHIPPED")
-                .append("log", " | shipped")
-                .where(eq("id", "A9"))
-                .execute().count();
-
-orders.
-
-        delete().
-
-        where(eq("status", "CANCELLED")).
-
-        orderBy("createdAt").
-
-        limit(10).
-
-        execute();
+orders.delete().where(eq("status", "CANCELLED")).orderBy("createdAt").limit(10).execute();
 
 // UPSERT — key() adds both the filter and the value written on insert
-orders.
-
-        upsert().
-
-        key("id","A9").
-
-        set("qty",6).
-
-        execute();
+orders.upsert().key("id", "A9").set("qty", 6).execute();
 
 // CLONE matching rows with overrides
-orders.
-
-        cloneRows().
-
-        where(eq("id", "A9")).
-
-        set("id","A10").
-
-        execute();
+orders.cloneRows().where(eq("id", "A9")).set("id", "A10").execute();
 
 // Worksheet / schema operations
-db.
-
-        worksheet("Archive").
-
-        create().
-
-        execute();
-orders.
-
-        addColumns("discount","notes").
-
-        skipExisting().
-
-        execute();
-
-        List<String> headers = orders.columns().fetch();
-orders.
-
-        clear().
-
-        execute();                      // keeps the header row
+db.worksheet("Archive").create().execute();
+orders.addColumns("discount", "notes").skipExisting().execute();
+List<String> headers = orders.columns().fetch();
+orders.clear().execute();                      // keeps the header row
 ```
 
 ### Rows and types
