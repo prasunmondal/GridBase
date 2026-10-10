@@ -7,13 +7,14 @@ reference material behind them.
 All snippets assume:
 
 ```java
-import io.github.prasunmondal.hibernatesheets.*;
-import io.github.prasunmondal.hibernatesheets.cache.*;
-import io.github.prasunmondal.hibernatesheets.mapping.*;
-import io.github.prasunmondal.hibernatesheets.query.Sort;
-import io.github.prasunmondal.hibernatesheets.result.*;
-import io.github.prasunmondal.hibernatesheets.exception.*;
-import static io.github.prasunmondal.hibernatesheets.query.Filters.*;
+import io.github.prasunmondal.gridbase.*;
+import io.github.prasunmondal.gridbase.cache.*;
+import io.github.prasunmondal.gridbase.mapping.*;
+import io.github.prasunmondal.gridbase.query.Sort;
+import io.github.prasunmondal.gridbase.result.*;
+import io.github.prasunmondal.gridbase.exception.*;
+
+import static io.github.prasunmondal.gridbase.query.Filters.*;
 ```
 
 **Contents**
@@ -837,11 +838,11 @@ AtomicInteger calls = new AtomicInteger();
 
 ### See the SDK's own logs
 
-The SDK logs through `java.util.logging` under `io.github.prasunmondal.hibernatesheets.*`. Cache
+The SDK logs through `java.util.logging` under `io.github.prasunmondal.gridbase.*`. Cache
 hits and request combining are logged at `FINE`, and cache problems at `WARNING`.
 
 ```java
-Logger l = Logger.getLogger("io.github.prasunmondal.hibernatesheets");
+Logger l = Logger.getLogger("io.github.prasunmondal.gridbase");
 l.setLevel(Level.FINE);
 ConsoleHandler h = new ConsoleHandler();
 h.setLevel(Level.FINE);
