@@ -1,7 +1,7 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
-sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/HibernateSheets.java]
+last_verified: 2026-10-10
+sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java]
 asserts:
   - { file: pom.xml, contains: "<module>gridbase-android</module>" }
 ---
@@ -19,17 +19,17 @@ asserts:
 ```
 Worksheet / Repository<T> / SheetProperties     fluent API, entity mapping          → domains/client-api.md
   spec/*Spec → spec.Operation (immutable)       transport-neutral op                 → domains/wire-contract.md
-  HibernateSheets.execute(List<Operation>)      cache lookup, queue, retry, hooks    → domains/cache.md, queueing.md
+  GridBase.execute(List<Operation>)      cache lookup, queue, retry, hooks    → domains/cache.md, queueing.md
   internal.RequestSerializer → JSON             exact contract of RequestParser.js   → domains/wire-contract.md
   transport.Transport (HttpTransport)           POST /exec, 302 → GET                → domains/wire-contract.md
   engine: parse → validate → lock? → execute → commitAll                             → domains/engine.md
   internal.ResponseParser → result.* / ServerException / TransportException
 ```
 
-## Packages (`gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/`)
+## Packages (`gridbase/src/main/java/io/github/prasunmondal/gridbase/`)
 | Package | Owns |
 |---|---|
-| root | `HibernateSheets` (client + execution core), `SheetProperties`, `Worksheet`, `Batch`/`Ref`, `SheetRequest`/`APIRequestsQueue`/`Queued`, `RequestQueue` (package-private), `RetryPolicy`, `NetworkCall*` |
+| root | `GridBase` (client + execution core), `SheetProperties`, `Worksheet`, `Batch`/`Ref`, `SheetRequest`/`APIRequestsQueue`/`Queued`, `RequestQueue` (package-private), `RetryPolicy`, `NetworkCall*` |
 | `spec` | Operation builders + `Operation` record |
 | `query` | `Filters`, `Filter`, `Operator`, `Sort` |
 | `internal` | `RequestSerializer`, `ResponseParser`, `JsCompat`, `Json`, `Compat`, `Log`: not public API |
@@ -39,7 +39,7 @@ Worksheet / Repository<T> / SheetProperties     fluent API, entity mapping      
 
 ## Cross-domain dependencies
 - client-api → wire-contract (every call becomes Operations)
-- cache, queueing → hook into `HibernateSheets.execute` / `executeTogether` / `sendCombined`
+- cache, queueing → hook into `GridBase.execute` / `executeTogether` / `sendCombined`
 - queueing → wire-contract (`ResponseParser.slice`) and cache (slices are what get cached)
 - wire-contract ⇄ engine (the JSON contract; filter semantics run in JavaScript)
 - android → cache (`SqlResponseCache` base, `CacheBackend` reflection)
@@ -48,6 +48,6 @@ Worksheet / Repository<T> / SheetProperties     fluent API, entity mapping      
 ## Threading model
 - Without a request queue, synchronous calls run on the caller's thread.
 - With `queueRequests(window)`: one daemon worker sends one HTTP call at a time, and caller futures
-  complete on the `hibernate-sheets-async` pool, never on the worker (ADR-006).
+  complete on the `gridbase-async` pool, never on the worker (ADR-006).
 - Cache stores are shared per file within the JVM and are thread-safe.
 - In the engine, write requests take a script lock and reads do not (ADR-007).

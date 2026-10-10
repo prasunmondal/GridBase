@@ -1,11 +1,11 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources:
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/SheetProperties.java
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/Worksheet.java
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/Batch.java
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/mapping/
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/SheetProperties.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/Worksheet.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/Batch.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/mapping/
 ---
 # Client API
 
@@ -15,13 +15,13 @@ This is the public surface that users code against. The README "API tour", "Enti
 intent and invariants.
 
 ## Entry points
-- `HibernateSheets.builder()...build()` → `db.worksheet(name)` gives a `Worksheet`, which offers
+- `GridBase.builder()...build()` → `db.worksheet(name)` gives a `Worksheet`, which offers
   untyped `Row` access through fluent specs.
 - `db.repository(Entity.class)` gives a `mapping.Repository<T>`. It is driven by `@SheetTable` /
   `@SheetKey` plus Jackson property names (`EntityMetadata`).
 - **`SheetProperties`**: one constant per entity that holds the script URL, the spreadsheet URL or
   id, the tab, the time zone, retries, timeouts, auth, cache, queue and pre/post network-call
-  actions. `PROPERTIES.repository(Entity.class)` uses a lazily built, owned `HibernateSheets`. The
+  actions. `PROPERTIES.repository(Entity.class)` uses a lazily built, owned `GridBase`. The
   reference example is `integrationTests/Employee.java`.
 
 ## Invariants

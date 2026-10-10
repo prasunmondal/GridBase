@@ -1,9 +1,9 @@
 ---
 paths:
-  - "gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/cache/**"
+  - "gridbase/src/main/java/io/github/prasunmondal/gridbase/cache/**"
   - "gridbase-android/**"
-  - "gridbase/src/test/java/io/github/prasunmondal/hibernatesheets/cachingTests/**"
-  - "gridbase/src/test/java/io/github/prasunmondal/hibernatesheets/cache/**"
+  - "gridbase/src/test/java/io/github/prasunmondal/gridbase/cachingTests/**"
+  - "gridbase/src/test/java/io/github/prasunmondal/gridbase/cache/**"
   - "**/ResponseCacheTest.java"
   - "**/CacheExpiryTest.java"
 ---

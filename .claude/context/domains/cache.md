@@ -1,10 +1,10 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources:
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/cache/
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/HibernateSheets.java
-  - gridbase-android/src/main/java/io/github/prasunmondal/hibernatesheets/android/AndroidSqliteResponseCache.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/cache/
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java
+  - gridbase-android/src/main/java/io/github/prasunmondal/gridbase/android/AndroidSqliteResponseCache.java
 ---
 # Response cache
 
@@ -15,8 +15,8 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
 
 ## How it works
 - Opt-in: `SheetProperties.shallCache(true)` (plus `cacheFile`, `cacheBackend`, `cacheStore` for a custom
-  `ResponseCache`, `cacheExpiry`, `cacheStrategy`) or `HibernateSheets.Builder.cache(store, strategy, expiry)`.
-- In `HibernateSheets.execute`, **only fully read-only requests** are cached. The key is the SHA-256
+  `ResponseCache`, `cacheExpiry`, `cacheStrategy`) or `GridBase.Builder.cache(store, strategy, expiry)`.
+- In `GridBase.execute`, **only fully read-only requests** are cached. The key is the SHA-256
   of the serialized operations. The **raw engine reply** is stored, tagged with the worksheets read.
 - Hits are re-parsed by `ResponseParser`, so POJO mapping is identical. Pre/post network actions do
   **not** fire on hits.
@@ -24,7 +24,7 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
   (`invalidateWrites`).
 - `CacheExpiry` (`ttl` / `dailyAt`, combined with `or`) decides freshness. `CacheStrategy.NETWORK_FIRST`
   falls back to stale entries **only** on transport or retryable errors.
-- `SheetRequest.forceRefresh()` → `HibernateSheets.executeRefreshing` / `Planned.forceRefresh`
+- `SheetRequest.forceRefresh()` → `GridBase.executeRefreshing` / `Planned.forceRefresh`
   skips the cache read, gives no stale fallback, and stores the fresh reply.
 - Cache I/O failures are logged and **never fail a request**.
 
@@ -42,7 +42,7 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
 - Every store is shared per path within the JVM through its `open(Path)`.
 - **Nothing outside `cache/` may reference `SqliteResponseCache`**, so `org.sqlite` loads only when
   SQLite is chosen. Android apps exclude `sqlite-jdbc`.
-- Default file: `~/.hibernate-sheets/cache.db`. On Android, `<java.io.tmpdir>/hibernate-sheets/cache.db`
+- Default file: `~/.gridbase/cache.db`. On Android, `<java.io.tmpdir>/gridbase/cache.db`
   (the app cache dir).
 
 ## Consistency limit

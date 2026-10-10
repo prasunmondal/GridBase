@@ -7,7 +7,7 @@ matching files.
 ## What this is
 
 **GridBase**: a public Java 17 library (Maven Central and JitPack) that is a typed client for the
-**hibernate.sheets** Google Apps Script engine (Google Sheets used as a database). Multi-module
+**GridBase** Google Apps Script engine (Google Sheets used as a database). Multi-module
 Maven build, parent `gridbase-parent` in the root `pom.xml`:
 - `gridbase/`: the SDK, `io.github.prasunmondal:gridbase`
 - `gridbase-android/`: `AndroidSqliteResponseCache` on the platform SQLite (no JVM tests, verify on a device)

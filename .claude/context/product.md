@@ -1,15 +1,15 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources: [README.md, pom.xml]
 asserts:
   - { file: pom.xml, contains: "<artifactId>gridbase-parent</artifactId>" }
 ---
-# Product: GridBase / hibernate.sheets
+# Product: GridBase
 
 ## Purpose
 A **public** Java/Android library that lets an application use Google Sheets as its database. The
-application talks to a **self-hosted Apps Script engine** (the "hibernate.sheets" engine, `appscript/`)
+application talks to a **self-hosted Apps Script engine** (the GridBase engine, `appscript/`; formerly "hibernate.sheets")
 through a typed, fluent API instead of hand-building JSON.
 
 ## Consumers

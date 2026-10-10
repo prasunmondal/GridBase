@@ -1,11 +1,11 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources:
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/internal/
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/spec/
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/transport/
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/RetryPolicy.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/transport/
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/RetryPolicy.java
   - appscript/backend/parser/
 ---
 # Wire contract, value conversion, transport, retries

@@ -19,7 +19,7 @@ the others.
 - After a non-retryable `ServerException` on a combined call, each request is re-sent alone. Row
   changes are all-or-nothing per request, so nothing was written.
 - **Schema operations are never queued.** They apply immediately, so a re-send could repeat them.
-- Calls made on the worker thread bypass the queue. Futures complete on the `hibernate-sheets-async`
+- Calls made on the worker thread bypass the queue. Futures complete on the `gridbase-async`
   pool, never on the worker.
 - The explicit `APIRequestsQueue` shares the same `sendCombined` path.
 
@@ -38,4 +38,4 @@ It preserves order and isolation while reducing calls, and is simple to reason a
 - Never block the worker on a caller future.
 
 ## Related components
-`RequestQueue.java`, `APIRequestsQueue.java`, `HibernateSheets.java` (`sendCombined`, `executeTogether`)
+`RequestQueue.java`, `APIRequestsQueue.java`, `GridBase.java` (`sendCombined`, `executeTogether`)

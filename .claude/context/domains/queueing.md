@@ -1,11 +1,11 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources:
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/RequestQueue.java
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/APIRequestsQueue.java
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/SheetRequest.java
-  - gridbase/src/main/java/io/github/prasunmondal/hibernatesheets/HibernateSheets.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/RequestQueue.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/APIRequestsQueue.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/SheetRequest.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java
 ---
 # Request queues (fewer HTTP calls)
 
@@ -17,14 +17,14 @@ request queue". Decision: ADR-006.
 ## Explicit queue: `APIRequestsQueue`, `SheetRequest<T>`, `Queued`
 - A `SheetRequest<T>` holds the operations, the client and an `ExecutionResponse → T` mapper. It is
   run with `execute()` or `queue(q)`.
-- `APIRequestsQueue.execute()` groups requests by client and calls `HibernateSheets.executeTogether`,
+- `APIRequestsQueue.execute()` groups requests by client and calls `GridBase.executeTogether`,
   which does a cache lookup per request and then calls `sendCombined` once per call. Calls are split
   around schema operations and at `maxOperationsPerCall`.
 - Failures belong to each `Queued` handle. `execute()` throws `QueueExecutionException` at the end if
   any request failed.
 
 ## Automatic queue: `RequestQueue` (package-private)
-- Opt-in: `SheetProperties.queueRequests(window)` or `HibernateSheets.Builder.requestQueue(...)`.
+- Opt-in: `SheetProperties.queueRequests(window)` or `GridBase.Builder.requestQueue(...)`.
 - `execute` is built on `submit(ops, async)`, which returns `CompletableFuture`s. `execute` awaits
   and rethrows the **original** exception. Without a queue, sync calls run inline on the caller's
   thread.
@@ -33,9 +33,9 @@ request queue". Decision: ADR-006.
 - **Schema operations are never queued**, because they apply immediately and cannot be re-sent
   safely.
 - Calls made on the worker thread (from hooks) bypass the queue, to avoid deadlock. Caller futures
-  complete on the `hibernate-sheets-async` pool, never on the worker.
+  complete on the `gridbase-async` pool, never on the worker.
 
-## Shared core: `HibernateSheets.sendCombined`
+## Shared core: `GridBase.sendCombined`
 - It makes one combined call, then `ResponseParser.slice` cuts the reply per request. Results are
   renumbered from `op-1`, and **the slice is what gets cached**.
 - After a non-retryable `ServerException` on a combined call, every request is **re-sent alone**.

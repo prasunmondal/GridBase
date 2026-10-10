@@ -1,19 +1,19 @@
 # GridBase cookbook
 
 Task-oriented recipes for the GridBase Java SDK (Google Sheets as a database through the
-hibernate.sheets Apps Script engine). Each recipe is self-contained; the [README](README.md) has the
+GridBase Apps Script engine). Each recipe is self-contained; the [README](README.md) has the
 reference material behind them.
 
 All snippets assume:
 
 ```java
-import io.github.prasunmondal.hibernatesheets.*;
-import io.github.prasunmondal.hibernatesheets.cache.*;
-import io.github.prasunmondal.hibernatesheets.mapping.*;
-import io.github.prasunmondal.hibernatesheets.query.Sort;
-import io.github.prasunmondal.hibernatesheets.result.*;
-import io.github.prasunmondal.hibernatesheets.exception.*;
-import static io.github.prasunmondal.hibernatesheets.query.Filters.*;
+import io.github.prasunmondal.gridbase.*;
+import io.github.prasunmondal.gridbase.cache.*;
+import io.github.prasunmondal.gridbase.mapping.*;
+import io.github.prasunmondal.gridbase.query.Sort;
+import io.github.prasunmondal.gridbase.result.*;
+import io.github.prasunmondal.gridbase.exception.*;
+import static io.github.prasunmondal.gridbase.query.Filters.*;
 ```
 
 **Contents**
@@ -78,7 +78,7 @@ The script must be able to open the spreadsheet: share it with the account the s
 ### The quickest client
 
 ```java
-HibernateSheets db = HibernateSheets.builder()
+GridBase db = GridBase.builder()
         .endpoint("https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec")
         .defaultSpreadsheetId("<SPREADSHEET_ID>")
         .timeZone(ZoneId.of("Asia/Kolkata"))      // the spreadsheet's time zone (File → Settings)
@@ -733,7 +733,7 @@ cache.purgeExpired(Instant.now());   // e.g. once a day; NETWORK_FIRST loses tho
 ### Without SheetProperties
 
 ```java
-HibernateSheets db = HibernateSheets.builder()
+GridBase db = GridBase.builder()
         .endpoint(ENDPOINT)
         .cache(CacheBackend.AUTO.open(Path.of("sheets.db")), CacheStrategy.CACHE_FIRST, CacheExpiry.ttlMinutes(10))
         .build();
@@ -760,7 +760,7 @@ try {
 }
 ```
 
-Both extend `HibernateSheetsException`. `e.isRetryable()` says whether trying again could help.
+Both extend `GridBaseException`. `e.isRetryable()` says whether trying again could help.
 
 ### Tune retries
 
@@ -837,11 +837,11 @@ AtomicInteger calls = new AtomicInteger();
 
 ### See the SDK's own logs
 
-The SDK logs through `java.util.logging` under `io.github.prasunmondal.hibernatesheets.*`. Cache
+The SDK logs through `java.util.logging` under `io.github.prasunmondal.gridbase.*`. Cache
 hits and request combining are logged at `FINE`, and cache problems at `WARNING`.
 
 ```java
-Logger l = Logger.getLogger("io.github.prasunmondal.hibernatesheets");
+Logger l = Logger.getLogger("io.github.prasunmondal.gridbase");
 l.setLevel(Level.FINE);
 ConsoleHandler h = new ConsoleHandler();
 h.setLevel(Level.FINE);
@@ -935,7 +935,7 @@ Transport fake = requestJson -> """
         {"success":true,"requestId":"t","results":[
           {"operationId":"op-1","rowCount":1,"rows":[{"id":"A1","qty":3}]}]}""";
 
-HibernateSheets db = HibernateSheets.builder()
+GridBase db = GridBase.builder()
         .transport(fake)
         .defaultSpreadsheetId("TEST")
         .build();

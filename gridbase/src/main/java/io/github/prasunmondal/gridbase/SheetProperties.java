@@ -1,0 +1,492 @@
+package io.github.prasunmondal.gridbase;
+
+import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.cache.CacheBackend;
+import io.github.prasunmondal.gridbase.cache.CacheExpiry;
+import io.github.prasunmondal.gridbase.cache.CacheStrategy;
+import io.github.prasunmondal.gridbase.cache.ResponseCache;
+import io.github.prasunmondal.gridbase.exception.GridBaseException;
+import io.github.prasunmondal.gridbase.internal.Log;
+import io.github.prasunmondal.gridbase.mapping.Repository;
+import io.github.prasunmondal.gridbase.transport.Transport;
+
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Everything needed to talk to one worksheet: engine script URL, spreadsheet, tab, time zone, retry,
+ * timeouts, auth and network hooks. An entity class typically declares one as a constant and builds
+ * its repository from it:
+ *
+ * <pre>{@code
+ * public class Customer {
+ *     public static final SheetProperties PROPERTIES = SheetProperties.builder()
+ *             .scriptUrl("https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec")
+ *             .dbSheetUrl("https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/edit")
+ *             .tabName("Customers")
+ *             .retryPolicy(RetryPolicy.defaults())
+ *             .preNetworkCall(call -> log.debug("-> {}", call.requestId()))
+ *             .postNetworkCall(result -> metrics.record(result.elapsed()))
+ *             .build();
+ *
+ *     public static Repository<Customer> repository() {
+ *         return PROPERTIES.repository(Customer.class);
+ *     }
+ *     ...
+ * }
+ * }</pre>
+ *
+ * <p>Immutable and thread-safe. The underlying {@link GridBase} client is created on first use
+ * and shared by everything built from this instance.</p>
+ */
+public final class SheetProperties {
+
+    private static final Pattern SPREADSHEET_URL = Pattern.compile("/spreadsheets/d/([a-zA-Z0-9_-]+)");
+
+    private static final Log LOG = Log.get(SheetProperties.class);
+
+    private final String scriptUrl;
+    private final Transport transport;
+    private final String spreadsheetId;
+    private final String tabName;
+    private final ZoneId timeZone;
+    private final RetryPolicy retryPolicy;
+    private final Duration connectTimeout;
+    private final Duration requestTimeout;
+    private final Supplier<String> accessToken;
+    private final List<Consumer<NetworkCall>> preNetworkCallActions;
+    private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
+    private final boolean shallCache;
+    private final CacheStrategy cacheStrategy;
+    private final CacheExpiry cacheExpiry;
+    private final Path cacheFile;
+    private final CacheBackend cacheBackend;
+    private final ResponseCache cacheStore;
+    private final Duration queueWindow;
+    private final int queueMaxOperations;
+    private final Clock clock;
+
+    private final ClientHolder clientHolder;
+
+    /** Lazily built client, shared by properties that differ only in {@code tabName}. */
+    private static final class ClientHolder {
+        private volatile GridBase client;
+
+        GridBase get(Supplier<GridBase> factory) {
+            GridBase c = client;
+            if (c == null) {
+                synchronized (this) {
+                    c = client;
+                    if (c == null) {
+                        client = c = factory.get();
+                    }
+                }
+            }
+            return c;
+        }
+    }
+
+    private SheetProperties(Builder b) {
+        if (b.scriptUrl == null && b.transport == null) {
+            throw new IllegalStateException("scriptUrl(...) is required");
+        }
+        if (b.spreadsheetId == null) {
+            throw new IllegalStateException("dbSheetUrl(...) is required");
+        }
+        this.scriptUrl = b.scriptUrl;
+        this.transport = b.transport;
+        this.spreadsheetId = b.spreadsheetId;
+        this.tabName = b.tabName;
+        this.timeZone = b.timeZone;
+        this.retryPolicy = b.retryPolicy;
+        this.connectTimeout = b.connectTimeout;
+        this.requestTimeout = b.requestTimeout;
+        this.accessToken = b.accessToken;
+        this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
+        this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
+        this.shallCache = b.shallCache;
+        this.cacheStrategy = b.cacheStrategy;
+        this.cacheExpiry = b.cacheExpiry;
+        this.cacheFile = b.cacheFile;
+        this.cacheBackend = b.cacheBackend;
+        this.cacheStore = b.cacheStore;
+        this.queueWindow = b.queueWindow;
+        this.queueMaxOperations = b.queueMaxOperations;
+        this.clock = b.clock;
+        this.clientHolder = b.inheritedClient != null ? b.inheritedClient : new ClientHolder();
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * A builder pre-filled with these properties, e.g. to derive per-entity properties from a shared base.
+     * If only {@code tabName} is changed, the result shares this instance's client — and therefore its
+     * request queue — so requests for both worksheets can go out in the same HTTP call.
+     */
+    public Builder toBuilder() {
+        Builder b = new Builder();
+        b.scriptUrl = scriptUrl;
+        b.transport = transport;
+        b.spreadsheetId = spreadsheetId;
+        b.tabName = tabName;
+        b.timeZone = timeZone;
+        b.retryPolicy = retryPolicy;
+        b.connectTimeout = connectTimeout;
+        b.requestTimeout = requestTimeout;
+        b.accessToken = accessToken;
+        b.preNetworkCallActions.addAll(preNetworkCallActions);
+        b.postNetworkCallActions.addAll(postNetworkCallActions);
+        b.shallCache = shallCache;
+        b.cacheStrategy = cacheStrategy;
+        b.cacheExpiry = cacheExpiry;
+        b.cacheFile = cacheFile;
+        b.cacheBackend = cacheBackend;
+        b.cacheStore = cacheStore;
+        b.queueWindow = queueWindow;
+        b.queueMaxOperations = queueMaxOperations;
+        b.clock = clock;
+        b.inheritedClient = clientHolder;
+        return b;
+    }
+
+    /** The client configured from these properties (created once, then reused). */
+    public GridBase client() {
+        return clientHolder.get(this::buildClient);
+    }
+
+    /** The configured tab of the configured spreadsheet. */
+    public Worksheet worksheet() {
+        if (tabName == null) {
+            throw new IllegalStateException("No tabName configured");
+        }
+        return client().worksheet(spreadsheetId, tabName);
+    }
+
+    /** Object-style access; the tab is {@link #tabName()} if set, otherwise taken from the entity class. */
+    public <T> Repository<T> repository(Class<T> entityType) {
+        return new Repository<>(this, entityType);
+    }
+
+    public String scriptUrl() {
+        return scriptUrl;
+    }
+
+    public String spreadsheetId() {
+        return spreadsheetId;
+    }
+
+    /** {@code null} when the tab name comes from the entity class instead. */
+    public String tabName() {
+        return tabName;
+    }
+
+    public ZoneId timeZone() {
+        return timeZone;
+    }
+
+    public RetryPolicy retryPolicy() {
+        return retryPolicy;
+    }
+
+    public Duration connectTimeout() {
+        return connectTimeout;
+    }
+
+    public Duration requestTimeout() {
+        return requestTimeout;
+    }
+
+    public List<Consumer<NetworkCall>> preNetworkCallActions() {
+        return preNetworkCallActions;
+    }
+
+    public List<Consumer<NetworkCallResult>> postNetworkCallActions() {
+        return postNetworkCallActions;
+    }
+
+    public boolean shallCache() {
+        return shallCache;
+    }
+
+    public CacheStrategy cacheStrategy() {
+        return cacheStrategy;
+    }
+
+    public CacheExpiry cacheExpiry() {
+        return cacheExpiry;
+    }
+
+    public Path cacheFile() {
+        return cacheFile;
+    }
+
+    public CacheBackend cacheBackend() {
+        return cacheBackend;
+    }
+
+    /** The store set with {@link Builder#cacheStore}, or {@code null} to open {@link #cacheBackend()} at {@link #cacheFile()}. */
+    public ResponseCache cacheStore() {
+        return cacheStore;
+    }
+
+    /** {@code null} when requests are not queued. */
+    public Duration queueWindow() {
+        return queueWindow;
+    }
+
+    public int queueMaxOperations() {
+        return queueMaxOperations;
+    }
+
+    /** The response cache when {@link #shallCache()} is on, e.g. to {@code invalidate} after external edits. */
+    public Optional<ResponseCache> cache() {
+        return client().cache();
+    }
+
+    private GridBase buildClient() {
+        GridBase.Builder b = GridBase.builder()
+                .defaultSpreadsheetId(spreadsheetId)
+                .timeZone(timeZone)
+                .retryPolicy(retryPolicy)
+                .connectTimeout(connectTimeout)
+                .requestTimeout(requestTimeout)
+                .accessToken(accessToken)
+                .clock(clock);
+        if (transport != null) {
+            b.transport(transport);
+        } else {
+            b.endpoint(scriptUrl);
+        }
+        preNetworkCallActions.forEach(b::preNetworkCall);
+        postNetworkCallActions.forEach(b::postNetworkCall);
+        if (shallCache) {
+            try {
+                ResponseCache store = cacheStore != null ? cacheStore : cacheBackend.open(cacheFile);
+                b.cache(store, cacheStrategy, cacheExpiry);
+            } catch (GridBaseException | LinkageError e) {
+                // Caching is an optimisation: without it every request still works. LinkageError covers an explicit
+                // CacheBackend.SQLITE where the driver or its native library is unavailable (CacheBackend.AUTO falls
+                // back to the journal by itself).
+                LOG.warning(() -> "gridbase cache disabled: " + e.getMessage());
+            }
+        }
+        if (queueWindow != null) {
+            b.requestQueue(queueWindow, queueMaxOperations);
+        }
+        return b.build();
+    }
+
+    static String spreadsheetIdOf(String urlOrId) {
+        Matcher m = SPREADSHEET_URL.matcher(urlOrId);
+        return m.find() ? m.group(1) : urlOrId.trim();
+    }
+
+    public static final class Builder {
+        private String scriptUrl;
+        private Transport transport;
+        private String spreadsheetId;
+        private String tabName;
+        private ZoneId timeZone = ZoneOffset.UTC;
+        private RetryPolicy retryPolicy = RetryPolicy.defaults();
+        private Duration connectTimeout = Duration.ofSeconds(10);
+        private Duration requestTimeout = Duration.ofSeconds(90);
+        private Supplier<String> accessToken;
+        private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
+        private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
+        private boolean shallCache;
+        private CacheStrategy cacheStrategy = CacheStrategy.CACHE_FIRST;
+        private CacheExpiry cacheExpiry = CacheExpiry.ttlMinutes(10);
+        private Path cacheFile = CacheBackend.defaultFile();
+        private CacheBackend cacheBackend = CacheBackend.AUTO;
+        private ResponseCache cacheStore;
+        private Duration queueWindow;
+        private int queueMaxOperations = 50;
+        private Clock clock = Clock.systemUTC();
+        private ClientHolder inheritedClient;
+
+        private Builder() {
+        }
+
+        /** Any setting other than {@code tabName} needs its own client. */
+        private Builder detached() {
+            inheritedClient = null;
+            return this;
+        }
+
+        /**
+         * Queue requests for up to {@code window} and send everything queued as one HTTP call.
+         * Off by default. See also {@link #queueMaxOperations}.
+         */
+        public Builder queueRequests(Duration window) {
+            if (window.isNegative()) {
+                throw new IllegalArgumentException("window must not be negative");
+            }
+            this.queueWindow = window;
+            return detached();
+        }
+
+        /** Clock used to decide cache freshness. Defaults to the system clock; mainly for tests. */
+        public Builder clock(Clock clock) {
+            this.clock = Objects.requireNonNull(clock);
+            return detached();
+        }
+
+        /** Most operations combined into one HTTP call. Defaults to 50. */
+        public Builder queueMaxOperations(int maxOperations) {
+            if (maxOperations < 1) {
+                throw new IllegalArgumentException("maxOperations must be >= 1");
+            }
+            this.queueMaxOperations = maxOperations;
+            return detached();
+        }
+
+        /**
+         * Cache replies to reads (SELECT, GET_COLUMNS) and reuse them (see {@link #cacheBackend}).
+         * Writes through any client sharing the cache file invalidate the worksheets they touch. Off by default.
+         */
+        public Builder shallCache(boolean shallCache) {
+            this.shallCache = shallCache;
+            return detached();
+        }
+
+        /** Defaults to {@link CacheStrategy#CACHE_FIRST}. */
+        public Builder cacheStrategy(CacheStrategy strategy) {
+            this.cacheStrategy = Objects.requireNonNull(strategy);
+            return detached();
+        }
+
+        /**
+         * When cached replies go stale, e.g. {@code CacheExpiry.ttlMinutes(30)} or
+         * {@code CacheExpiry.dailyAt(LocalTime.of(1, 0), LocalTime.of(15, 0))}, combinable with {@code or}.
+         * Defaults to 10 minutes.
+         */
+        public Builder cacheExpiry(CacheExpiry expiry) {
+            this.cacheExpiry = Objects.requireNonNull(expiry);
+            return detached();
+        }
+
+        /**
+         * Where the cache lives: the SQLite database or journal file (for {@link CacheBackend#MEMORY}, just a
+         * name; clients with the same name share entries). Defaults to {@code ~/.gridbase/cache.db}
+         * ({@code <app cache dir>/gridbase/cache.db} on Android). {@link CacheBackend#AUTO} keeps its
+         * journal next to it as {@code <file>.journal}.
+         */
+        public Builder cacheFile(Path file) {
+            this.cacheFile = Objects.requireNonNull(file);
+            return detached();
+        }
+
+        /**
+         * How cached replies are stored. Defaults to {@link CacheBackend#AUTO}: SQLite on the JVM, the
+         * pure-Java journal on Android (or wherever the SQLite native library can't be loaded).
+         */
+        public Builder cacheBackend(CacheBackend backend) {
+            this.cacheBackend = Objects.requireNonNull(backend);
+            return detached();
+        }
+
+        /**
+         * Use this store instead of opening {@link #cacheBackend} at {@link #cacheFile}, e.g. your own
+         * {@link ResponseCache} implementation. Still needs {@link #shallCache shallCache(true)}.
+         */
+        public Builder cacheStore(ResponseCache store) {
+            this.cacheStore = Objects.requireNonNull(store);
+            return detached();
+        }
+
+        /** The engine web app's {@code /exec} URL. */
+        public Builder scriptUrl(String url) {
+            this.scriptUrl = Objects.requireNonNull(url);
+            return detached();
+        }
+
+        /** Replace the HTTP transport (custom auth, testing); {@link #scriptUrl} and timeouts are then unused. */
+        public Builder transport(Transport transport) {
+            this.transport = Objects.requireNonNull(transport);
+            return detached();
+        }
+
+        /** The spreadsheet: its full URL ({@code https://docs.google.com/spreadsheets/d/<id>/...}) or bare id. */
+        public Builder dbSheetUrl(String urlOrId) {
+            this.spreadsheetId = spreadsheetIdOf(Objects.requireNonNull(urlOrId));
+            return detached();
+        }
+
+        /** Worksheet (tab) name. If unset, the entity's {@code @SheetTable} or simple class name is used. */
+        public Builder tabName(String tabName) {
+            this.tabName = tabName;
+            return this;
+        }
+
+        /** Time zone of the spreadsheet, used for date conversion. Defaults to UTC. */
+        public Builder timeZone(ZoneId zone) {
+            this.timeZone = Objects.requireNonNull(zone);
+            return detached();
+        }
+
+        public Builder retryPolicy(RetryPolicy policy) {
+            this.retryPolicy = Objects.requireNonNull(policy);
+            return detached();
+        }
+
+        public Builder connectTimeout(Duration timeout) {
+            this.connectTimeout = Objects.requireNonNull(timeout);
+            return detached();
+        }
+
+        public Builder requestTimeout(Duration timeout) {
+            this.requestTimeout = Objects.requireNonNull(timeout);
+            return detached();
+        }
+
+        /** OAuth access token supplier for deployments restricted to Google accounts. */
+        public Builder accessToken(Supplier<String> tokenSupplier) {
+            this.accessToken = tokenSupplier;
+            return detached();
+        }
+
+        /** Runs before every HTTP attempt (including retries), in registration order. */
+        public Builder preNetworkCall(Consumer<NetworkCall> action) {
+            this.preNetworkCallActions.add(Objects.requireNonNull(action));
+            return detached();
+        }
+
+        /** Runs after every HTTP attempt, whether it succeeded or failed, in registration order. */
+        public Builder postNetworkCall(Consumer<NetworkCallResult> action) {
+            this.postNetworkCallActions.add(Objects.requireNonNull(action));
+            return detached();
+        }
+
+        /**
+         * Logs every HTTP call (retries included) with {@link NetworkLogger#defaults()}: one red line per
+         * request and per reply, tagged {@value NetworkLogger#LOGGER_NAME}.
+         */
+        public Builder logNetworkCalls() {
+            return logNetworkCalls(NetworkLogger.defaults());
+        }
+
+        /** Logs every HTTP call with {@code logger}, e.g. {@code NetworkLogger.defaults().maxBodyChars(0)}. */
+        public Builder logNetworkCalls(NetworkLogger logger) {
+            Objects.requireNonNull(logger, "logger");
+            preNetworkCall(logger::before);
+            return postNetworkCall(logger::after);
+        }
+
+        public SheetProperties build() {
+            return new SheetProperties(this);
+        }
+    }
+}

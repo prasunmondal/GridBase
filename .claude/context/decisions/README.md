@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 ---
 # Architecture Decision Records
 
@@ -28,6 +28,7 @@ confirm their rationale once.
 | [008](ADR-008-no-auth-across-redirect.md) | `Authorization` not forwarded across the redirect host | Accepted |
 | [009](ADR-009-separate-android-module.md) | Android SQLite cache in a separate module, loaded by reflection | Accepted |
 | [010](ADR-010-shared-sql-cache-base.md) | SQL stores share `SqlResponseCache`; `org.sqlite` isolated | Accepted |
+| [011](ADR-011-rename-to-gridbase.md) | Java API renamed from `hibernatesheets` to `gridbase`, clean break | Accepted |
 
 ## Template (`ADR-NNN-kebab-title.md`, keep it under about 60 lines)
 ```markdown

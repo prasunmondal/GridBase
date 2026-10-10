@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources: [gridbase/src/test/, gridbase/pom.xml]
 ---
 # Testing
@@ -8,7 +8,7 @@ sources: [gridbase/src/test/, gridbase/pom.xml]
 ## Tiers
 | Tier | Where | Runs under `mvn test` | Network |
 |---|---|---|---|
-| Unit | `gridbase/src/test/java/.../hibernatesheets/*Test.java`, `cache/` | yes | none (`FakeTransport`; `HttpTransportTest` uses an in-process server) |
+| Unit | `gridbase/src/test/java/.../gridbase/*Test.java`, `cache/` | yes | none (`FakeTransport`; `HttpTransportTest` uses an in-process server) |
 | Caching suite | `.../cachingTests/` | yes | none (`FakeSheetsEngine`) |
 | Integration | `.../integrationTests/*IT.java` | **no**: run with `mvn test -pl gridbase -Dtest='*IT'` | **live** Apps Script deployment, or the emulator |
 | Android | `gridbase-android` | no tests (Android stubs) | on-device checklist in `android.md` |

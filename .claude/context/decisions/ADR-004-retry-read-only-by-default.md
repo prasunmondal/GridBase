@@ -28,8 +28,8 @@ Correct data matters more than availability for writes (`product.md` promise 4).
 - The lock-timeout case is safe to retry (nothing ran), but writes still wait for the opt-in.
 
 ## Constraints
-- New failure kinds must set `retryable` correctly in `HibernateSheetsException`.
+- New failure kinds must set `retryable` correctly in `GridBaseException`.
 - Do not make write retries the default.
 
 ## Related components
-`RetryPolicy.java`, `exception/HibernateSheetsException.java`, `internal/ResponseParser.java`
+`RetryPolicy.java`, `exception/GridBaseException.java`, `internal/ResponseParser.java`

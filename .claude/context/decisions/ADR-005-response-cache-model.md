@@ -38,4 +38,4 @@ simple and safe.
 - Never let cache errors propagate.
 
 ## Related components
-`cache/`, `HibernateSheets.java` (`invalidateWrites`, `executeRefreshing`), `cachingTests/`
+`cache/`, `GridBase.java` (`invalidateWrites`, `executeRefreshing`), `cachingTests/`

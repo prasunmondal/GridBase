@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Local emulator for the hibernate.sheets Apps Script engine.
+ * Local emulator for the GridBase Apps Script engine.
  *
  * Runs the REAL engine source (the appscript/ folder) inside Node, with an in-memory
  * SpreadsheetApp / ContentService, behind an HTTP endpoint that behaves like an Apps Script
@@ -267,5 +267,5 @@ http.createServer((req, res) => {
   }
   send(res, 404, 'text/html', '<html><head><title>Page Not Found</title></head></html>');
 }).listen(port, '127.0.0.1', () => {
-  console.log(`hibernate.sheets emulator: http://127.0.0.1:${port}/macros/s/${deploymentId}/exec  (TZ=${process.env.TZ}, ${ordered.length} engine files)`);
+  console.log(`gridbase emulator: http://127.0.0.1:${port}/macros/s/${deploymentId}/exec  (TZ=${process.env.TZ}, ${ordered.length} engine files)`);
 });

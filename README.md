@@ -1,12 +1,12 @@
-# hibernate.sheets Java client
+# GridBase Java client
 
-A Java 17+ library for the **hibernate.sheets** Apps Script engine. Other projects add one
+A Java 17+ library for the **GridBase** Apps Script engine. Other projects add one
 dependency and talk to Google Sheets through a typed, fluent API instead of hand-building JSON.
 
 Looking for how to do something specific? See the **[cookbook](COOKBOOK.md)**.
 
 ```java
-HibernateSheets db = HibernateSheets.builder()
+GridBase db = GridBase.builder()
         .endpoint("https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec")
         .defaultSpreadsheetId("1C8rsAWa0XfpxfHSb-F-FALSvmCT1knQ5lBoegQ8Phwc")
         .timeZone(ZoneId.of("Asia/Kolkata"))   // the spreadsheet's time zone
@@ -51,9 +51,9 @@ also runs on Android (API 26+); the build checks this with animal-sniffer.
 - For the response cache, add `gridbase-android` (see [Install](#install)). The default `CacheBackend.AUTO`
   then uses Android's own SQLite (`android.database.sqlite`) via `AndroidSqliteResponseCache`: nothing
   native is shipped, so there is no `dlopen failed: library "libsqlitejdbc.so" not found`, and no
-  `Context` is needed. The database goes to `<app cache dir>/hibernate-sheets/cache.db`; to keep it out
+  `Context` is needed. The database goes to `<app cache dir>/gridbase/cache.db`; to keep it out
   of the cache dir (which Android may clear under storage pressure), pass
-  `.cacheFile(new File(context.getFilesDir(), "hibernate-sheets.db").toPath())`.
+  `.cacheFile(new File(context.getFilesDir(), "gridbase.db").toPath())`.
 - Without `gridbase-android`, `AUTO` falls back to the pure-Java `JournalResponseCache`
   (`<cacheFile>.journal`), so caching still works.
 - Android never needs `sqlite-jdbc`; drop it to save the native libraries:
@@ -74,6 +74,24 @@ also runs on Android (API 26+); the build checks this with animal-sniffer.
   still works.
 
 ---
+
+## Migrating from `hibernatesheets`
+
+GridBase used to be called hibernate.sheets. The Java API was renamed; the engine and its wire format did
+not change, so existing engine deployments keep working without a redeploy. In your code:
+
+| Before | After |
+|---|---|
+| `io.github.prasunmondal.hibernatesheets.*` (every subpackage) | `io.github.prasunmondal.gridbase.*` |
+| `HibernateSheets` | `GridBase` |
+| `HibernateSheetsException` | `GridBaseException` |
+| logger `io.github.prasunmondal.hibernatesheets` | `io.github.prasunmondal.gridbase` |
+| ProGuard/R8 rules naming `...hibernatesheets...` | `...gridbase...` |
+
+The default cache file moved from `~/.hibernate-sheets/cache.db` (Android: `<app cache dir>/hibernate-sheets/`)
+to `~/.gridbase/cache.db` (`<app cache dir>/gridbase/`). The old file is no longer read; the first reads
+after upgrading go to the network, and you can delete the old file. Thread names are now
+`gridbase-async` and `gridbase-queue`.
 
 ## Install
 
@@ -121,7 +139,7 @@ your code
 Operation (immutable record)            ← transport-neutral description of one engine op
   │  RequestSerializer                  ← exact JSON contract of RequestParser.js
   ▼
-HibernateSheets.execute(List<Operation>)  ← one HTTP request, retry policy
+GridBase.execute(List<Operation>)  ← one HTTP request, retry policy
   │  ResponseCache (optional)           ← reads served from / stored in SQLite, a journal or memory; writes invalidate
   │  RequestQueue (optional)            ← requests made close together → one HTTP call
   │  pre/post network-call actions      ← run around every HTTP attempt
@@ -131,25 +149,25 @@ ResponseParser                          ← success → typed results; success:f
 ```
 
 `SheetProperties` sits on top: it holds all the settings for one entity/worksheet and builds the
-`HibernateSheets` client (and cache) from them.
+`GridBase` client (and cache) from them.
 
 | Package | Contents |
 |---|---|
-| `hibernatesheets` | `HibernateSheets` (client), `SheetProperties`, `Worksheet`, `Batch`/`Ref`/`BatchResult`, `RetryPolicy`, `NetworkCall`/`NetworkCallResult` |
+| `gridbase` | `GridBase` (client), `SheetProperties`, `Worksheet`, `Batch`/`Ref`/`BatchResult`, `RetryPolicy`, `NetworkCall`/`NetworkCallResult` |
 | `.cache` | `ResponseCache` + `SqliteResponseCache` / `JournalResponseCache` / `InMemoryResponseCache`, `CacheBackend`, `CacheExpiry`, `CacheStrategy` |
 | `.query` | `Filters` (static factory), `Filter`, `Sort` |
 | `.spec` | Operation builders and the `Operation` record |
 | `.result` | `Row`, `RowsResult`, `ColumnsResult`, `AddColumnsResult`, `ClearResult`, `WorksheetCreated` |
 | `.mapping` | `@SheetTable`, `@SheetKey`, `Repository<T>` |
 | `.transport` | `Transport` interface, `HttpTransport` |
-| `.exception` | `HibernateSheetsException` → `ServerException`, `TransportException` |
+| `.exception` | `GridBaseException` → `ServerException`, `TransportException` |
 
 ---
 
 ## API tour
 
 ```java
-import static io.github.prasunmondal.hibernatesheets.query.Filters.*;
+import static io.github.prasunmondal.gridbase.query.Filters.*;
 
 // SELECT
 List<Row> rows      = orders.select().where(eq("customer", "C-7")).fetch();
@@ -322,7 +340,7 @@ public class Employee {
 | `connectTimeout` / `requestTimeout` | 10 s / 90 s | |
 | `accessToken` | none | OAuth token supplier. |
 | `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
-| `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile`, `cacheBackend`, `cacheStore` | off, `CACHE_FIRST`, 10 min, `~/.hibernate-sheets/cache.db`, `AUTO`, none | See [Response cache](#response-cache). |
+| `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile`, `cacheBackend`, `cacheStore` | off, `CACHE_FIRST`, 10 min, `~/.gridbase/cache.db`, `AUTO`, none | See [Response cache](#response-cache). |
 | `clock` | system clock | Clock used to decide cache freshness; inject one in tests to control expiry. |
 | `queueRequests`, `queueMaxOperations` | off, 50 | See [Automatic request queue](#automatic-request-queue-time-window). For sending on demand, see [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so). |
 
@@ -331,7 +349,7 @@ What you get from it:
 ```java
 Employee.repository().findById("E001");            // Repository<T> on the configured tab
 Employee.PROPERTIES.worksheet().select().fetch();  // the fluent Worksheet API
-Employee.PROPERTIES.client();                      // the underlying HibernateSheets client
+Employee.PROPERTIES.client();                      // the underlying GridBase client
 ```
 
 The client is built on first use and shared by everything created from the same `SheetProperties`.
@@ -384,7 +402,7 @@ SheetProperties.builder()
   `failure()` is set.
 - A retried request keeps its `requestId`; only `attempt()` changes.
 - Reads served from the cache make no network call, so the hooks do not run for them.
-- The same hooks are available on `HibernateSheets.builder()` as `preNetworkCall` / `postNetworkCall`.
+- The same hooks are available on `GridBase.builder()` as `preNetworkCall` / `postNetworkCall`.
 
 ### Log every network call
 
@@ -394,7 +412,7 @@ make no call and log nothing.
 ```java
 SheetProperties.builder()
         ...
-        .logNetworkCalls()                                   // or HibernateSheets.builder().logNetworkCalls()
+        .logNetworkCalls()                                   // or GridBase.builder().logNetworkCalls()
         .build();
 ```
 
@@ -558,7 +576,7 @@ write, or without a cache, `forceRefresh()` changes nothing.
 Without `SheetProperties`, attach a cache to a client directly:
 
 ```java
-HibernateSheets db = HibernateSheets.builder()
+GridBase db = GridBase.builder()
         .endpoint(...)
         .cache(CacheBackend.AUTO.open(Path.of("sheets.db")), CacheStrategy.CACHE_FIRST,
                CacheExpiry.ttlMinutes(10))
@@ -658,7 +676,7 @@ SheetProperties.builder()
         .build();
 
 // or without SheetProperties
-HibernateSheets.builder().endpoint(...).requestQueue(Duration.ofMillis(20), 50).build();
+GridBase.builder().endpoint(...).requestQueue(Duration.ofMillis(20), 50).build();
 ```
 
 Off by default. Nothing else changes in your code: results, exceptions and caching behave as if each
@@ -679,7 +697,7 @@ render(engineers.join(), depts.join(), added.join().rows());
 ```
 
 Async methods: `executeAsync()` on every operation (insert, update, delete, upsert, clone, select…),
-`fetchAsync()` / `fetchAsync(Class)` on selects, and `HibernateSheets.executeAsync(List<Operation>)` /
+`fetchAsync()` / `fetchAsync(Class)` on selects, and `GridBase.executeAsync(List<Operation>)` /
 `executeOneAsync(...)`. They also work without a queue (each runs on a background thread).
 
 **Concurrent callers.** Synchronous calls from different threads — e.g. web requests in a server —
@@ -704,10 +722,10 @@ one thread) gains nothing, and waits up to the window per call.
   network hook. These go straight to the network.
 - **Explicit batches** (`db.batch()`) are queued as one request and stay all-or-nothing.
 - **Cache.** Cache hits are answered without queueing; each queued read is cached as its own entry.
-- **Threads.** HTTP calls run on a daemon thread named `hibernate-sheets-queue`, so network hooks run
+- **Threads.** HTTP calls run on a daemon thread named `gridbase-queue`, so network hooks run
   there; `CompletableFuture` callbacks run on a separate pool, never on the queue thread.
 
-Requests only combine when they go through the same client — the same `HibernateSheets`, or
+Requests only combine when they go through the same client — the same `GridBase`, or
 `SheetProperties` derived by `tabName` only (see [above](#per-entity-configuration-sheetproperties)).
 
 ---
