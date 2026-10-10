@@ -352,6 +352,21 @@ Employee.PROPERTIES.worksheet().select().fetch();  // the fluent Worksheet API
 Employee.PROPERTIES.client();                      // the underlying GridBase client
 ```
 
+To skip writing those accessors, extend `GridBaseTable<T>` with the properties and the entity class.
+It provides `properties()`, `repository()` (built once, on first use) and `worksheet()`:
+
+```kotlin
+object Employees : GridBaseTable<Employee>(
+    BASE.toBuilder().tabName("Employees").build(),
+    Employee::class.java)
+
+Employees.repository().findById("E001")
+Employees.worksheet().select().request().forceRefresh().execute()
+```
+
+In Java: `final class Employees extends GridBaseTable<Employee>` with a constructor calling
+`super(PROPERTIES, Employee.class)`, used through a `static final` instance.
+
 The client is built on first use and shared by everything created from the same `SheetProperties`.
 To share connection settings between entities, define a base and derive from it with `toBuilder()`
 (the base is not modified):

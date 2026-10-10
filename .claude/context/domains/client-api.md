@@ -5,6 +5,7 @@ sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/SheetProperties.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/Worksheet.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/Batch.java
+  - gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBaseTable.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/mapping/
 ---
 # Client API
@@ -23,6 +24,10 @@ intent and invariants.
   id, the tab, the time zone, retries, timeouts, auth, cache, queue and pre/post network-call
   actions. `PROPERTIES.repository(Entity.class)` uses a lazily built, owned `GridBase`. The
   reference example is `integrationTests/Employee.java`.
+- **`GridBaseTable<T>`**: optional base class (`object X : GridBaseTable<E>(props, E::class.java)`)
+  that supplies `properties()` / `repository()` / `worksheet()`. Its methods are `final` and few on
+  purpose: every method added later can clash with names in consumers' subclasses. The constructor
+  must stay side-effect free (Kotlin `object` init order); the repository is built lazily.
 
 ## Invariants
 - Nothing is sent until `execute()` / `fetch()`. Specs only build Operations.

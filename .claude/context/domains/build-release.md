@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-09
+last_verified: 2026-10-10
 sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, jitpack.yml, scripts/sync/]
 asserts:
   - { file: pom.xml, contains: "central-publishing-maven-plugin" }
