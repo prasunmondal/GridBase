@@ -421,8 +421,9 @@ SheetProperties.builder()
 
 ### Log every network call
 
-`logNetworkCalls()` writes one line per HTTP request and one per reply, retries included. Cache hits
-make no call and log nothing.
+`logNetworkCalls()` writes one line per HTTP request and one per reply, retries included. With a
+response cache, every read also logs one line saying whether it was served from the cache (a hit
+makes no HTTP call, so it has no `>>` / `<<` lines).
 
 ```java
 SheetProperties.builder()
@@ -434,7 +435,14 @@ SheetProperties.builder()
 ```
 GridBase >> e3357ec5 attempt 1 | 1 op: SELECT Customers | spreadsheet 1C8rsAWa... | 244 chars | body={"requestId":...}
 GridBase << e3357ec5 OK in 1840 ms | 5.2 KB
+GridBase == CACHE HIT | 1 op: SELECT Customers
+GridBase == CACHE MISS (expired) | 1 op: SELECT Customers
 ```
+
+A miss says why: `not cached`, `expired`, `refresh` (forced) or `network first`. A `NETWORK_FIRST`
+read that falls back to a cached reply after a network failure logs `CACHE HIT (stale, network failed)`.
+Cache hits are logged at `INFO` (green in Logcat) and misses at the logger's level (red by default);
+with `.ansiColor(true)` hits are ANSI green and misses ANSI red.
 
 Lines go to the `java.util.logging` logger `GridBaseNetwork` at `SEVERE`, so they show **red**: on
 Android as `Log.e` (filter Logcat with `tag:GridBaseNetwork`), on the desktop on stderr (red in IntelliJ /
@@ -446,7 +454,7 @@ with `success:false` reads `ENGINE ERROR … : <engine message>`. Tune it with `
         .maxBodyChars(500)                 // 0 = summary only; default 2000
         .maxResponseChars(1000)            // print replies too; default 0
         .level(Level.INFO)                 // not red, if you prefer
-        .ansiColor(true)                   // ANSI red for plain terminals (not for Logcat / files)
+        .ansiColor(true)                   // ANSI red (cache hits green) for terminals (not for Logcat / files)
         .to(line -> Log.e("Sheets", line)))  // or any sink instead of java.util.logging
 ```
 

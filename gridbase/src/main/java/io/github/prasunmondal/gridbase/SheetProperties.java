@@ -67,6 +67,7 @@ public final class SheetProperties {
     private final Supplier<String> accessToken;
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
+    private final List<NetworkLogger> networkLoggers;
     private final boolean shallCache;
     private final CacheStrategy cacheStrategy;
     private final CacheExpiry cacheExpiry;
@@ -115,6 +116,7 @@ public final class SheetProperties {
         this.accessToken = b.accessToken;
         this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
         this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
+        this.networkLoggers = Compat.copyOf(b.networkLoggers);
         this.shallCache = b.shallCache;
         this.cacheStrategy = b.cacheStrategy;
         this.cacheExpiry = b.cacheExpiry;
@@ -149,6 +151,7 @@ public final class SheetProperties {
         b.accessToken = accessToken;
         b.preNetworkCallActions.addAll(preNetworkCallActions);
         b.postNetworkCallActions.addAll(postNetworkCallActions);
+        b.networkLoggers.addAll(networkLoggers);
         b.shallCache = shallCache;
         b.cacheStrategy = cacheStrategy;
         b.cacheExpiry = cacheExpiry;
@@ -277,6 +280,7 @@ public final class SheetProperties {
         }
         preNetworkCallActions.forEach(b::preNetworkCall);
         postNetworkCallActions.forEach(b::postNetworkCall);
+        b.cacheLoggers.addAll(networkLoggers);
         if (shallCache) {
             try {
                 ResponseCache store = cacheStore != null ? cacheStore : cacheBackend.open(cacheFile);
@@ -311,6 +315,7 @@ public final class SheetProperties {
         private Supplier<String> accessToken;
         private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
         private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
+        private final List<NetworkLogger> networkLoggers = new ArrayList<>();
         private boolean shallCache;
         private CacheStrategy cacheStrategy = CacheStrategy.CACHE_FIRST;
         private CacheExpiry cacheExpiry = CacheExpiry.ttlMinutes(10);
@@ -477,7 +482,8 @@ public final class SheetProperties {
 
         /**
          * Logs every HTTP call (retries included) with {@link NetworkLogger#defaults()}: one red line per
-         * request and per reply, tagged {@value NetworkLogger#LOGGER_NAME}.
+         * request and per reply, plus a green (hit) or red (miss) line per cached read, tagged
+         * {@value NetworkLogger#LOGGER_NAME}.
          */
         public Builder logNetworkCalls() {
             return logNetworkCalls(NetworkLogger.defaults());
@@ -486,6 +492,7 @@ public final class SheetProperties {
         /** Logs every HTTP call with {@code logger}, e.g. {@code NetworkLogger.defaults().maxBodyChars(0)}. */
         public Builder logNetworkCalls(NetworkLogger logger) {
             Objects.requireNonNull(logger, "logger");
+            networkLoggers.add(logger);
             preNetworkCall(logger::before);
             return postNetworkCall(logger::after);
         }

@@ -192,18 +192,37 @@ class NetworkLoggerTest {
     }
 
     @Test
-    void cacheHitsMakeNoCallSoLogNothing() {
-        GridBase db = GridBase.builder()
+    void cachedReadsLogAMissThenAHit() {
+        GridBase db = cachedClient(NetworkLogger.defaults().to(lines::add));
+        db.worksheet("Orders").select().fetch();
+        db.worksheet("Orders").select().fetch();
+
+        assertEquals(4, lines.size(), lines.toString());
+        assertEquals("GridBase == CACHE MISS (not cached) | 1 op: SELECT Orders", lines.get(0));
+        assertTrue(lines.get(1).startsWith("GridBase >> "), lines.get(1));
+        assertTrue(lines.get(2).startsWith("GridBase << "), lines.get(2));
+        assertEquals("GridBase == CACHE HIT | 1 op: SELECT Orders", lines.get(3), "no network call for the hit");
+    }
+
+    @Test
+    void ansiColorMakesHitsGreenAndMissesRed() {
+        GridBase db = cachedClient(NetworkLogger.defaults().maxBodyChars(0).ansiColor(true).to(lines::add));
+        db.worksheet("Orders").select().fetch();
+        db.worksheet("Orders").select().fetch();
+
+        assertTrue(lines.get(0).startsWith("\u001B[31mGridBase == CACHE MISS"), lines.get(0));
+        assertTrue(lines.get(3).startsWith("\u001B[32mGridBase == CACHE HIT"), lines.get(3));
+        assertTrue(lines.get(3).endsWith("\u001B[0m"), lines.get(3));
+    }
+
+    private static GridBase cachedClient(NetworkLogger logger) {
+        return GridBase.builder()
                 .transport(FakeTransport.replying("\"rowCount\":0,\"rows\":[]"))
                 .defaultSpreadsheetId("S")
                 .cache(new io.github.prasunmondal.gridbase.cache.InMemoryResponseCache(),
                         io.github.prasunmondal.gridbase.cache.CacheStrategy.CACHE_FIRST,
                         io.github.prasunmondal.gridbase.cache.CacheExpiry.ttlMinutes(5))
-                .logNetworkCalls(NetworkLogger.defaults().to(lines::add))
+                .logNetworkCalls(logger)
                 .build();
-        db.worksheet("Orders").select().fetch();
-        db.worksheet("Orders").select().fetch();
-
-        assertEquals(2, lines.size(), "one request + one reply line; the second read was a cache hit");
     }
 }

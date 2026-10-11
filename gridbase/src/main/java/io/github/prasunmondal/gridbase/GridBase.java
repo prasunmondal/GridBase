@@ -81,6 +81,7 @@ public final class GridBase {
     private final ResponseParser parser;
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
+    private final List<NetworkLogger> cacheLoggers;
     private final ResponseCache cache;
     private final CacheStrategy cacheStrategy;
     private final CacheExpiry cacheExpiry;
@@ -95,6 +96,7 @@ public final class GridBase {
         this.clock = b.clock;
         this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
         this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
+        this.cacheLoggers = Compat.copyOf(b.cacheLoggers);
         this.mapper = Json.mapper(b.objectMapper, b.zone);
         this.defaultSpreadsheetId = b.defaultSpreadsheetId;
         this.retryPolicy = b.retryPolicy;
@@ -354,12 +356,21 @@ public final class GridBase {
         if (hit) {
             LOG.debug(() -> "gridbase cache hit " + key);
         }
+        String reason = hit ? null
+                : cacheStrategy == CacheStrategy.NETWORK_FIRST ? "network first"
+                : entry.isPresent() ? "expired" : "not cached";
+        logCache(hit, reason, operations);
         return new CachedRead(operations, key, entry, hit);
     }
 
     /** No cache read and nothing to fall back to; the fresh reply is still stored. */
     private CachedRead refreshing(List<Operation> operations) {
+        logCache(false, "refresh", operations);
         return new CachedRead(operations, cacheKey(operations), Optional.empty(), false);
+    }
+
+    private void logCache(boolean hit, String reason, List<Operation> operations) {
+        cacheLoggers.forEach(logger -> logger.cache(hit, reason, operations));
     }
 
     /** Stores a successful read, or falls back to a stale entry (NETWORK_FIRST) when the network failed. */
@@ -381,6 +392,7 @@ public final class GridBase {
             ResponseCache.Entry stale = read.entry().get();
             LOG.warning(() -> "gridbase request failed, serving cached reply from "
                     + stale.cachedAt() + ": " + cause.getMessage());
+            logCache(true, "stale, network failed", read.operations());
             return parser.parse(stale.reply(), read.operations());
         }
         throw rethrowable(cause);
@@ -556,6 +568,7 @@ public final class GridBase {
         private Supplier<String> accessToken;
         private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
         private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
+        final List<NetworkLogger> cacheLoggers = new ArrayList<>();
         private ResponseCache cache;
         private CacheStrategy cacheStrategy;
         private CacheExpiry cacheExpiry;
@@ -664,7 +677,8 @@ public final class GridBase {
 
         /**
          * Logs every HTTP call (retries included) with {@link NetworkLogger#defaults()}: one red line per
-         * request and per reply, tagged {@value NetworkLogger#LOGGER_NAME}.
+         * request and per reply, plus a green (hit) or red (miss) line per cached read, tagged
+         * {@value NetworkLogger#LOGGER_NAME}.
          */
         public Builder logNetworkCalls() {
             return logNetworkCalls(NetworkLogger.defaults());
@@ -673,6 +687,7 @@ public final class GridBase {
         /** Logs every HTTP call with {@code logger}, e.g. {@code NetworkLogger.defaults().maxBodyChars(0)}. */
         public Builder logNetworkCalls(NetworkLogger logger) {
             Objects.requireNonNull(logger, "logger");
+            cacheLoggers.add(logger);
             preNetworkCall(logger::before);
             return postNetworkCall(logger::after);
         }

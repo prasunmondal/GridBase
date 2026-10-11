@@ -5,9 +5,11 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.prasunmondal.gridbase.spec.Operation;
 
 import java.io.IOException;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -23,7 +25,13 @@ import java.util.logging.Logger;
  * <pre>
  * GridBase >> 3f2a9c1e attempt 1 | 2 ops: SELECT Customers, INSERT Orders | spreadsheet 1C8rsAWa... | 412 chars | body={"requestId":...}
  * GridBase &lt;&lt; 3f2a9c1e OK in 1840 ms | 5.2 KB
+ * GridBase == CACHE HIT | 1 op: SELECT Customers
+ * GridBase == CACHE MISS (expired) | 1 op: SELECT Customers
  * </pre>
+ *
+ * <p>With a response cache, every read also logs whether it was served from the cache. A hit is logged at
+ * {@link Level#INFO} (or the configured level, if lower), which Logcat shows <b>green</b>; a miss at the
+ * configured level, so <b>red</b> by default. With {@link #ansiColor} hits are ANSI green and misses red.</p>
  *
  * <p>Lines go to the {@code java.util.logging} logger {@value #LOGGER_NAME} at {@link Level#SEVERE} by default,
  * which shows <b>red</b>: Android maps it to {@code Log.e} (Logcat colors errors red; filter with
@@ -44,6 +52,7 @@ public final class NetworkLogger {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final JsonFactory JSON_FACTORY = JSON.getFactory();
     private static final String RED = "\u001B[31m";
+    private static final String GREEN = "\u001B[32m";
     private static final String RESET = "\u001B[0m";
 
     private final Level level;
@@ -85,7 +94,7 @@ public final class NetworkLogger {
     }
 
     /**
-     * Wraps each line in ANSI red. Useful in plain terminals; leave it off for Logcat and log files,
+     * Wraps each line in ANSI red (cache hits in green). Useful in plain terminals; leave it off for Logcat and log files,
      * which show the escape codes literally.
      */
     public NetworkLogger ansiColor(boolean enabled) {
@@ -139,16 +148,46 @@ public final class NetworkLogger {
         emit(line.toString());
     }
 
+    /** A read answered from the cache ({@code hit}) or sent to the engine because of {@code reason}. */
+    void cache(boolean hit, String reason, List<Operation> operations) {
+        Level lineLevel = hit && level.intValue() > Level.INFO.intValue() ? Level.INFO : level;
+        if (!enabled(lineLevel)) {
+            return;
+        }
+        StringBuilder line = new StringBuilder("GridBase == CACHE ").append(hit ? "HIT" : "MISS");
+        if (reason != null) {
+            line.append(" (").append(reason).append(')');
+        }
+        line.append(" | ").append(operations.size()).append(operations.size() == 1 ? " op: " : " ops: ");
+        for (int i = 0; i < operations.size(); i++) {
+            if (i == 8) {
+                line.append(", ...");
+                break;
+            }
+            Operation op = operations.get(i);
+            line.append(i == 0 ? "" : ", ").append(op.type()).append(' ').append(op.worksheet());
+        }
+        emit(line.toString(), lineLevel, hit ? GREEN : RED);
+    }
+
     private boolean enabled() {
-        return level != Level.OFF && (sink != null || JUL.isLoggable(level));
+        return enabled(level);
+    }
+
+    private boolean enabled(Level lineLevel) {
+        return level != Level.OFF && (sink != null || JUL.isLoggable(lineLevel));
     }
 
     private void emit(String line) {
-        String text = ansiColor ? RED + line + RESET : line;
+        emit(line, level, RED);
+    }
+
+    private void emit(String line, Level lineLevel, String color) {
+        String text = ansiColor ? color + line + RESET : line;
         if (sink != null) {
             sink.accept(text);
         } else {
-            JUL.log(level, text);
+            JUL.log(lineLevel, text);
         }
     }
 
