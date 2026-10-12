@@ -29,6 +29,7 @@ confirm their rationale once.
 | [009](ADR-009-separate-android-module.md) | Android SQLite cache in a separate module, loaded by reflection | Accepted |
 | [010](ADR-010-shared-sql-cache-base.md) | SQL stores share `SqlResponseCache`; `org.sqlite` isolated | Accepted |
 | [011](ADR-011-rename-to-gridbase.md) | Java API renamed from `hibernatesheets` to `gridbase`, clean break | Accepted |
+| [012](ADR-012-optional-columns-dropped-by-engine.md) | `@OptionalColumn` values are dropped by the engine when the sheet lacks the column | Accepted |
 
 ## Template (`ADR-NNN-kebab-title.md`, keep it under about 60 lines)
 ```markdown

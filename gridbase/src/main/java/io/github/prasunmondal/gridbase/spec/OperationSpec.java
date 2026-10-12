@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.spec;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.internal.OptionalColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.prasunmondal.gridbase.APIRequestsQueue;
 import io.github.prasunmondal.gridbase.Queued;
@@ -8,10 +9,13 @@ import io.github.prasunmondal.gridbase.SheetRequest;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.result.OperationResult;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -30,6 +34,12 @@ public abstract class OperationSpec<R extends OperationResult> {
     };
 
     protected final Worksheet worksheet;
+
+    /** Columns written only if the sheet has them; see {@link io.github.prasunmondal.gridbase.mapping.OptionalColumn}. */
+    protected final Set<String> optionalColumns = new LinkedHashSet<>();
+
+    private Class<?> lastRowType;
+    private List<String> lastRowOptionalColumns;
 
     protected OperationSpec(Worksheet worksheet) {
         this.worksheet = Objects.requireNonNull(worksheet, "worksheet");
@@ -83,7 +93,23 @@ public abstract class OperationSpec<R extends OperationResult> {
             throw new IllegalArgumentException("A row must be a Map or an object with properties, not "
                     + source.getClass().getName());
         }
+        if (source.getClass() != lastRowType) {
+            lastRowType = source.getClass();
+            lastRowOptionalColumns = OptionalColumns.of(worksheet.client().objectMapper(), lastRowType);
+        }
+        optionalColumns.addAll(lastRowOptionalColumns);
         return worksheet.client().objectMapper().convertValue(source, MAP_TYPE);
+    }
+
+    /**
+     * Marks columns whose values are dropped, instead of failing, if the sheet has no such column.
+     * {@link io.github.prasunmondal.gridbase.mapping.OptionalColumn} properties of a row object are added
+     * automatically.
+     */
+    protected void addOptionalColumns(String... columns) {
+        for (String column : columns) {
+            optionalColumns.add(Objects.requireNonNull(column, "column"));
+        }
     }
 
     protected Operation operation(List<io.github.prasunmondal.gridbase.query.Filter> filters,
@@ -96,7 +122,7 @@ public abstract class OperationSpec<R extends OperationResult> {
                                   int limit,
                                   int offset) {
         return new Operation(type(), worksheet.spreadsheetId(), worksheet.name(), filters, orderBy, select,
-                values, rows, columns, skipExisting, limit, offset);
+                values, rows, columns, skipExisting, limit, offset, new ArrayList<>(optionalColumns));
     }
 
     @Override

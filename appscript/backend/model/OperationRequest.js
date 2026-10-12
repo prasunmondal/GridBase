@@ -16,6 +16,7 @@ class OperationRequest {
         this.projections = [];
         this.values = [];
         this.columns = [];
+        this.optionalColumns = [];
 
         this.rows = [];
         this.skipExisting = false;
@@ -49,6 +50,22 @@ class OperationRequest {
     getColumns() {
 
         return this.columns;
+
+    }
+
+    addOptionalColumn(column) {
+
+        this.optionalColumns.push(
+            column
+        );
+
+        return this;
+
+    }
+
+    getOptionalColumns() {
+
+        return this.optionalColumns;
 
     }
 

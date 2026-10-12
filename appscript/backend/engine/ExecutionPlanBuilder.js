@@ -34,6 +34,12 @@ class ExecutionPlanBuilder {
 
         }
 
+        for (const column of operation.getOptionalColumns()) {
+
+            plan.addOptionalColumn(column);
+
+        }
+
         for (const row of operation.getRows()) {
 
             plan.addRow(row);

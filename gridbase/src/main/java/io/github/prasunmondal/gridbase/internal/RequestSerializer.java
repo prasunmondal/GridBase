@@ -18,7 +18,7 @@ import java.util.List;
  * <pre>
  * { "requestId": "...", "operations": [ { "id", "type", "spreadsheetId", "worksheet",
  *   "where": [...], "orderBy": [...], "select": [...], "values": {...}, "rows": [...],
- *   "columns": [...], "skipExisting", "limit", "offset" } ] }
+ *   "columns": [...], "skipExisting", "limit", "offset", "optionalColumns": [...] } ] }
  * </pre>
  */
 public final class RequestSerializer {
@@ -90,6 +90,10 @@ public final class RequestSerializer {
         }
         if (op.offset() > 0) {
             node.put("offset", op.offset());
+        }
+        if (!op.optionalColumns().isEmpty()) {
+            ArrayNode optional = node.putArray("optionalColumns");
+            op.optionalColumns().forEach(optional::add);
         }
         return node;
     }

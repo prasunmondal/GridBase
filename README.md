@@ -158,7 +158,7 @@ ResponseParser                          ← success → typed results; success:f
 | `.query` | `Filters` (static factory), `Filter`, `Sort` |
 | `.spec` | Operation builders and the `Operation` record |
 | `.result` | `Row`, `RowsResult`, `ColumnsResult`, `AddColumnsResult`, `ClearResult`, `WorksheetCreated` |
-| `.mapping` | `@SheetTable`, `@SheetKey`, `Repository<T>` |
+| `.mapping` | `@SheetTable`, `@SheetKey`, `@OptionalColumn`, `Repository<T>` |
 | `.transport` | `Transport` interface, `HttpTransport` |
 | `.exception` | `GridBaseException` → `ServerException`, `TransportException` |
 
@@ -285,6 +285,27 @@ queues always send them in a call of their own.
 Records work too (`public record Product(@SheetKey String sku, String title) {}`). Column names follow
 Jackson property names; use `@JsonProperty("Header Text")` and `@JsonIgnore` as usual. The engine does
 not enforce key uniqueness.
+
+### Columns the sheet may not have: `@OptionalColumn`
+
+Mark a property `@OptionalColumn` to write it only when the worksheet has that column. If the column
+is missing, the value is dropped and the rest of the row is written, instead of the request failing
+with *Unknown column*. It applies to every write (`insert`, `upsert`, `update().set(entity)`, `save`,
+`cloneRows().set(entity)`); filters, sorting and `select(...)` on the column still need it to exist.
+
+```java
+public class Customer {
+    @SheetKey @JsonProperty("customer_id") public String id;
+    public String name;
+    @OptionalColumn @JsonProperty("Phone No") public String phone;   // skipped on sheets without "Phone No"
+}
+
+// Maps have no annotations; name the columns instead:
+db.worksheet("Customers").insert(map).optionalColumns("Phone No").execute();
+```
+
+Requires a **redeployed engine**. An older engine ignores the hint: it still writes the column when it
+exists and still fails with *Unknown column* when it does not.
 
 Every repository method also exists as a not-yet-sent request — `customers.requests().findAll()` —
 for sending several together with an [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so).

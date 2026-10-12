@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-10-12
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
@@ -20,6 +20,8 @@ back. It is the most compatibility-sensitive area, because consumers run engines
 - `internal.RequestSerializer` encodes the exact JSON that `appscript/backend/parser/RequestParser.js`
   reads. **`RequestContractTest` pins it: change the serializer, the parser and the test together.**
   `RequestValidator.js` checks predicates on the engine side.
+- `optionalColumns` (from `@OptionalColumn` or `optionalColumns(...)`) is sent only when non-empty.
+  Old engines ignore it (ADR-012).
 - `internal.ResponseParser`: success → `result.*`; `success:false` → `ServerException` (engine
   message, JS type, stack, debug); an HTML page instead of JSON → `TransportException` naming the
   page title. `slice(body, offset, count)` cuts a combined reply per caller and renumbers results

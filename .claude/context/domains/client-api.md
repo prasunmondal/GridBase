@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-10-12
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/SheetProperties.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/Worksheet.java
@@ -19,7 +19,8 @@ intent and invariants.
 - `GridBase.builder()...build()` → `db.worksheet(name)` gives a `Worksheet`, which offers
   untyped `Row` access through fluent specs.
 - `db.repository(Entity.class)` gives a `mapping.Repository<T>`. It is driven by `@SheetTable` /
-  `@SheetKey` plus Jackson property names (`EntityMetadata`).
+  `@SheetKey` plus Jackson property names (`EntityMetadata`). `@OptionalColumn` properties are found by
+  `internal.OptionalColumns` (Jackson introspection) whenever a POJO becomes a row.
 - **`SheetProperties`**: one constant per entity that holds the script URL, the spreadsheet URL or
   id, the tab, the time zone, retries, timeouts, auth, cache, queue and pre/post network-call
   actions. `PROPERTIES.repository(Entity.class)` uses a lazily built, owned `GridBase`. The

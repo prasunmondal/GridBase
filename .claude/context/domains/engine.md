@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-10-12
 sources: [appscript/backend/, appscript/deploy.sh, gridbase/src/test/emulator/engine-emulator.js]
 ---
 # Engine (Apps Script, `appscript/`)
@@ -29,6 +29,8 @@ Layers: `parser/`, `compiler/` + `execution/predicate/compiled/` (filter compila
 - Filters compare in JavaScript (e.g. `CompiledEqualsPredicate` compares `String(cell)` to
   `String(expected)`). The SDK shapes values for this (see `wire-contract.md`).
 - The engine cannot delete worksheets.
+- A value for a column listed in `optionalColumns` that the sheet lacks is dropped in
+  `ExecutionCompiler`, not rejected. Other references to the column still fail (ADR-012).
 
 ## Deploying
 - `appscript/deploy.sh` runs `npx clasp push` + `clasp deploy` **from `PROJECT_DIR=/c/Projects/hibernate.gsheets`,

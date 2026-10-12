@@ -331,6 +331,15 @@ class ExecutionCompiler {
 
         for (const value of values) {
 
+            if (this.isMissingOptionalColumn(
+                    schema,
+                    executionPlan,
+                    value.getColumnName())) {
+
+                continue;
+
+            }
+
             compiledPlan.addValue(
 
                 this.compileValue(
@@ -397,6 +406,15 @@ class ExecutionCompiler {
 
             for (const value of row.getValues()) {
 
+                if (this.isMissingOptionalColumn(
+                        schema,
+                        executionPlan,
+                        value.getColumnName())) {
+
+                    continue;
+
+                }
+
                 compiledRow.addValue(
 
                     this.compileValue(
@@ -426,6 +444,19 @@ class ExecutionCompiler {
         compiledPlan.setOffset(
             executionPlan.getOffset()
         );
+
+    }
+
+    //
+    // A value for an optional column the worksheet
+    // does not have is dropped instead of rejected.
+    //
+    isMissingOptionalColumn(schema,
+                            executionPlan,
+                            columnName) {
+
+        return executionPlan.isOptionalColumn(columnName) &&
+            schema.getColumnIndex(columnName) < 0;
 
     }
 

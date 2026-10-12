@@ -1,7 +1,9 @@
 package io.github.prasunmondal.gridbase.integrationTests;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.exception.ServerException;
+import io.github.prasunmondal.gridbase.mapping.OptionalColumn;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -200,6 +202,43 @@ class InsertIT {
         ServerException e = assertThrows(ServerException.class, () -> employees.insert(m).execute());
         assertTrue(e.getServerMessage().contains("Unknown column: NoSuchColumn"));
         assertEquals(EMPLOYEE_COUNT, employeeCount());
+    }
+
+    public static class EmployeeWithExtras {
+        @JsonProperty("EmployeeId") public String id;
+        @JsonProperty("Name") public String name;
+        @OptionalColumn @JsonProperty("City") public String city;
+        @OptionalColumn @JsonProperty("NoSuchColumn") public String extra;
+    }
+
+    @Test
+    @DisplayName("an @OptionalColumn missing from the sheet is skipped; one that exists is written")
+    void optionalColumnMissingFromSheetIsSkipped() {
+        EmployeeWithExtras e = new EmployeeWithExtras();
+        e.id = "E011";
+        e.name = "Optional Columns";
+        e.city = "Pune";
+        e.extra = "dropped";
+        employees.insert(e).execute();
+
+        Row row = employee("E011");
+        assertEquals("Optional Columns", row.getString("Name"));
+        assertEquals("Pune", row.getString("City"));
+        assertFalse(row.columns().contains("NoSuchColumn"));
+        assertEquals(EMPLOYEE_COUNT + 1, employeeCount());
+    }
+
+    @Test
+    @DisplayName("optionalColumns(...) skips missing Map columns on insert and upsert")
+    void optionalColumnsForMaps() {
+        Map<String, Object> m = new LinkedHashMap<>(newEmployee("E011", "Map Optional"));
+        m.put("NoSuchColumn", "x");
+        employees.insert(m).optionalColumns("NoSuchColumn").execute();
+        assertEquals("Map Optional", employee("E011").getString("Name"));
+
+        employees.upsert().key("EmployeeId", "E011").set("Name", "Renamed").set("NoSuchColumn", "y")
+                .optionalColumns("NoSuchColumn").execute();
+        assertEquals("Renamed", employee("E011").getString("Name"));
     }
 
     @Test

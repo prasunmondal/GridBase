@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.mapping;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.internal.OptionalColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.prasunmondal.gridbase.GridBase;
 import io.github.prasunmondal.gridbase.SheetProperties;
@@ -13,6 +14,7 @@ import io.github.prasunmondal.gridbase.result.OperationResult;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import io.github.prasunmondal.gridbase.spec.Operation;
 import io.github.prasunmondal.gridbase.spec.SelectSpec;
+import io.github.prasunmondal.gridbase.spec.UpsertSpec;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -198,9 +200,7 @@ public final class Repository<T> {
         }
 
         public SheetRequest<T> upsert(T entity) {
-            return worksheet.upsert()
-                    .key(meta.keyColumn(), keyOf(entity))
-                    .set(withoutKey(entity))
+            return upsertOf(entity)
                     .request()
                     .map(r -> r.first().map(row -> row.as(type)).orElse(entity));
         }
@@ -212,10 +212,7 @@ public final class Repository<T> {
             }
             List<Operation> ops = new ArrayList<>(entities.size());
             for (T entity : entities) {
-                ops.add(worksheet.upsert()
-                        .key(meta.keyColumn(), keyOf(entity))
-                        .set(withoutKey(entity))
-                        .toOperation());
+                ops.add(upsertOf(entity).toOperation());
             }
             return SheetRequest.of(client, ops, response -> {
                 List<T> saved = new ArrayList<>(ops.size());
@@ -266,7 +263,15 @@ public final class Repository<T> {
         }
     }
 
-    private Object keyOf(T entity) {
+    private UpsertSpec upsertOf(T entity) {
+        // set(Map) cannot see the entity's @OptionalColumn annotations, so pass them on explicitly.
+        return worksheet.upsert()
+                .key(meta.keyColumn(), keyOf(entity))
+                .set(withoutKey(entity))
+                .optionalColumns(OptionalColumns.of(client.objectMapper(), entity.getClass()).toArray(new String[0]));
+    }
+
+        private Object keyOf(T entity) {
         Objects.requireNonNull(entity, "entity");
         return requireId(meta.keyValue(entity));
     }

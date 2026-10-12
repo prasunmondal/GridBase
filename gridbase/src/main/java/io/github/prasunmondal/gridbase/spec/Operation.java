@@ -12,6 +12,7 @@ import java.util.Objects;
  * Produced by the fluent specs; serialized by the client.
  *
  * @param limit {@code -1} means "no limit"
+ * @param optionalColumns columns whose values the engine drops, rather than failing, when the sheet lacks them
  */
 public record Operation(
         OperationType type,
@@ -25,7 +26,8 @@ public record Operation(
         List<String> columns,
         boolean skipExisting,
         int limit,
-        int offset) {
+        int offset,
+        List<String> optionalColumns) {
 
     public Operation {
         Objects.requireNonNull(type, "type");
@@ -41,6 +43,7 @@ public record Operation(
         values = Compat.copyOf(values);
         rows = rows.stream().map(Compat::copyOf).collect(Compat.toList());
         columns = Compat.copyOf(columns);
+        optionalColumns = Compat.copyOf(optionalColumns);
         if (limit < -1) {
             throw new IllegalArgumentException("limit must be >= 0 (or -1 for no limit)");
         }
@@ -49,9 +52,18 @@ public record Operation(
         }
     }
 
+    /** Without optional columns. */
+    public Operation(OperationType type, String spreadsheetId, String worksheet, List<Filter> filters,
+                     List<Sort> orderBy, List<String> select, List<Assignment> values,
+                     List<List<Assignment>> rows, List<String> columns, boolean skipExisting, int limit,
+                     int offset) {
+        this(type, spreadsheetId, worksheet, filters, orderBy, select, values, rows, columns, skipExisting,
+                limit, offset, Compat.listOf());
+    }
+
     /** Copy of this operation with a different limit. */
     public Operation withLimit(int newLimit) {
         return new Operation(type, spreadsheetId, worksheet, filters, orderBy, select, values, rows,
-                columns, skipExisting, newLimit, offset);
+                columns, skipExisting, newLimit, offset, optionalColumns);
     }
 }

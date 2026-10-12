@@ -1,5 +1,9 @@
 package io.github.prasunmondal.gridbase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.prasunmondal.gridbase.mapping.OptionalColumn;
+import io.github.prasunmondal.gridbase.mapping.Repository;
+import io.github.prasunmondal.gridbase.mapping.SheetKey;
 import io.github.prasunmondal.gridbase.query.Sort;
 import org.junit.jupiter.api.Test;
 
@@ -155,5 +159,54 @@ class RequestContractTest {
     void explicitAllAllowsUnfilteredWrites() {
         db.worksheet("T").delete().all().execute();
         assertFalse(transport.lastOperation().has("where"));
+    }
+
+    public static class Contact {
+        @SheetKey public String id;
+        public String name;
+        @OptionalColumn @JsonProperty("Phone No") public String phone;
+    }
+
+    public record Tag(String id, @OptionalColumn String colour) {
+    }
+
+    private static Contact contact() {
+        Contact c = new Contact();
+        c.id = "C-1";
+        c.name = "Asha";
+        c.phone = "123";
+        return c;
+    }
+
+    @Test
+    void optionalColumnPropertiesAreSentUnderTheirColumnNames() {
+        db.worksheet("T").insert(contact()).execute();
+        assertEquals(json("[\"Phone No\"]"), transport.lastOperation().path("optionalColumns"));
+
+        db.worksheet("T").insert(new Tag("t", "red")).execute();
+        assertEquals(json("[\"colour\"]"), transport.lastOperation().path("optionalColumns"));
+
+        db.worksheet("T").update().where(eq("id", "C-1")).set(contact()).execute();
+        assertEquals(json("[\"Phone No\"]"), transport.lastOperation().path("optionalColumns"));
+    }
+
+    @Test
+    void optionalColumnsAreOmittedWhenNoneAreMarked() {
+        db.worksheet("T").insert(Map.of("a", 1)).execute();
+        assertFalse(transport.lastOperation().has("optionalColumns"));
+    }
+
+    @Test
+    void explicitOptionalColumnsWorkForMaps() {
+        db.worksheet("T").insert(Map.of("a", 1)).optionalColumns("a").execute();
+        assertEquals(json("[\"a\"]"), transport.lastOperation().path("optionalColumns"));
+        db.worksheet("T").upsert().key("id", "1").set("b", 2).optionalColumns("b").execute();
+        assertEquals(json("[\"b\"]"), transport.lastOperation().path("optionalColumns"));
+    }
+
+    @Test
+    void repositoryUpsertKeepsOptionalColumns() {
+        new Repository<>(db, Contact.class).upsert(contact());
+        assertEquals(json("[\"Phone No\"]"), transport.lastOperation().path("optionalColumns"));
     }
 }

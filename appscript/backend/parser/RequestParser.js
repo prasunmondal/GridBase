@@ -126,6 +126,30 @@ class RequestParser {
 
         }
 
+        //
+        // Columns whose values are dropped, instead of
+        // failing, when the worksheet has no such column.
+        //
+        if (Array.isArray(json.optionalColumns)) {
+
+            for (const column of json.optionalColumns) {
+
+                if (typeof column !== "string") {
+
+                    throw new Error(
+                        "optionalColumns must contain only column names."
+                    );
+
+                }
+
+                operation.addOptionalColumn(
+                    column
+                );
+
+            }
+
+        }
+
         if (json.values !== undefined) {
 
             this.parseValues(

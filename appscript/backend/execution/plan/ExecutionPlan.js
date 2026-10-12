@@ -11,6 +11,7 @@ class ExecutionPlan {
         this.projections = [];
         this.values = [];
         this.rows = [];
+        this.optionalColumns = new Set();
 
         this.useIndexes = true;
         this.type = OperationType.SELECT;
@@ -27,6 +28,18 @@ class ExecutionPlan {
     getRows() {
 
         return this.rows;
+    }
+
+    addOptionalColumn(column) {
+
+        this.optionalColumns.add(column);
+
+        return this;
+    }
+
+    isOptionalColumn(column) {
+
+        return this.optionalColumns.has(column);
     }
 
     addPredicate(predicate) {

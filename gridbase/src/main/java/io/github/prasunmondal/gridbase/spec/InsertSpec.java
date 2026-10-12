@@ -47,6 +47,15 @@ public final class InsertSpec extends OperationSpec<RowsResult> {
         return this;
     }
 
+    /**
+     * Values for these columns are dropped, instead of failing, if the sheet has no such column.
+     * {@link io.github.prasunmondal.gridbase.mapping.OptionalColumn} properties are included automatically.
+     */
+    public InsertSpec optionalColumns(String... columns) {
+        addOptionalColumns(columns);
+        return this;
+    }
+
     @Override
     public Operation toOperation() {
         if (rows.isEmpty()) {

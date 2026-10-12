@@ -37,6 +37,15 @@ public abstract class MutationSpec<S extends MutationSpec<S>> extends FilterSpec
         return assign(new Assignment(column, text, Assignment.Kind.PREPEND));
     }
 
+    /**
+     * Values for these columns are dropped, instead of failing, if the sheet has no such column.
+     * {@link io.github.prasunmondal.gridbase.mapping.OptionalColumn} properties are included automatically.
+     */
+    public S optionalColumns(String... columns) {
+        addOptionalColumns(columns);
+        return self();
+    }
+
     private S assign(Assignment assignment) {
         // One JSON key per column: a second write to the same column would silently win on the server.
         if (assignments.containsKey(assignment.column())) {
