@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * {@link ResponseCache} in a SQLite database, independent of the driver: the schema and every statement
@@ -81,15 +82,52 @@ public abstract class SqlResponseCache implements ResponseCache {
         return file;
     }
 
+    /**
+     * Longest piece of a reply read by one query. Android's {@code CursorWindow} (2 MB by default) must hold
+     * a whole result row, so a large reply read in one piece fails with "Row too big to fit into
+     * CursorWindow". 256K characters stay under 1 MB of UTF-8 even at 4 bytes per character.
+     */
+    static final int READ_CHUNK_CHARS = 256 * 1024;
+
     @Override
     public synchronized Optional<Entry> get(String key) {
         try {
-            return sql.queryRow("SELECT reply, cached_at, expires_at FROM hs_response WHERE cache_key = ?", key)
-                    .map(r -> new Entry(r[0], Instant.ofEpochMilli(Long.parseLong(r[1])),
-                            Instant.ofEpochMilli(Long.parseLong(r[2]))));
+            AtomicReference<Entry> found = new AtomicReference<>();
+            // one transaction, so every chunk comes from the same version of the row
+            sql.inTransaction(() -> sql.queryRow("SELECT length(reply), cached_at, expires_at, substr(reply, 1, ?) "
+                            + "FROM hs_response WHERE cache_key = ?", (long) READ_CHUNK_CHARS, key)
+                    .ifPresent(r -> found.set(new Entry(readRest(key, Long.parseLong(r[0]), r[3]),
+                            Instant.ofEpochMilli(Long.parseLong(r[1])),
+                            Instant.ofEpochMilli(Long.parseLong(r[2]))))));
+            return Optional.ofNullable(found.get());
         } catch (RuntimeException e) {
             throw failure("read", e);
         }
+    }
+
+    /**
+     * The whole reply of {@code length} characters, given its first chunk. SQLite's {@code length} and
+     * {@code substr} count code points, not Java {@code char}s, so the offset is kept in code points.
+     */
+    private String readRest(String key, long length, String first) {
+        long read = first.codePointCount(0, first.length());
+        if (read >= length) {
+            return first;
+        }
+        StringBuilder reply = new StringBuilder((int) Math.min(Integer.MAX_VALUE, length)).append(first);
+        while (read < length) {
+            String chunk = sql.queryRow("SELECT substr(reply, ?, ?) FROM hs_response WHERE cache_key = ?",
+                            read + 1, (long) READ_CHUNK_CHARS, key)
+                    .map(r -> r[0])
+                    .orElse("");
+            if (chunk.isEmpty()) {
+                throw new IllegalStateException("cached reply ended after " + read + " of " + length
+                        + " characters");
+            }
+            reply.append(chunk);
+            read += chunk.codePointCount(0, chunk.length());
+        }
+        return reply.toString();
     }
 
     @Override

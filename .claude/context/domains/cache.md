@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-10-12
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/cache/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java
@@ -41,6 +41,9 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
 
 - Both SQL stores extend **`SqlResponseCache`, which owns the schema and every SQL statement**.
   Drivers only implement its small `Sql` interface, so SQL is changed there, once.
+- `get` reads a reply in `substr` chunks of 256K code points inside one transaction. Android's
+  `CursorWindow` (2 MB) must hold a whole result row, so a large reply read in one piece fails with
+  "Row too big to fit into CursorWindow". SQLite's `length`/`substr` count code points, not Java `char`s.
 - Every store is shared per path within the JVM through its `open(Path)`.
 - **Nothing outside `cache/` may reference `SqliteResponseCache`**, so `org.sqlite` loads only when
   SQLite is chosen. Android apps exclude `sqlite-jdbc`.
