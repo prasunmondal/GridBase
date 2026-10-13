@@ -5,9 +5,13 @@ import io.github.prasunmondal.gridbase.internal.Log;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /** Which {@link ResponseCache} implementation stores cached replies. */
 public enum CacheBackend {
@@ -87,6 +91,53 @@ public enum CacheBackend {
             return Paths.get(System.getProperty("java.io.tmpdir"), "gridbase", "cache.db");
         }
         return Paths.get(System.getProperty("user.home"), ".gridbase", "cache.db");
+    }
+
+    /**
+     * Erases every entry of every built-in store open in this JVM, whatever its backend and file, and of
+     * the default cache file ({@link #defaultFile()}, or its journal) when it exists on disk but has not been
+     * opened yet. Files stay in place, empty; custom {@link ResponseCache} implementations are not touched.
+     *
+     * @throws GridBaseException if a store fails, after the remaining stores were cleared
+     */
+    public static void clearAll() {
+        List<RuntimeException> failures = new ArrayList<>();
+        Path file = defaultFile();
+        Path journal = journalSibling(file);
+        if (Files.isRegularFile(file)) {
+            clear(failures, () -> AUTO.open(file));
+        }
+        if (Files.isRegularFile(journal)) {
+            clear(failures, () -> JOURNAL.open(journal));
+        }
+        for (ResponseCache store : OpenStores.snapshot()) {
+            clear(failures, () -> store);
+        }
+        throwFirst(failures);
+    }
+
+    private static void clear(List<RuntimeException> failures, Supplier<ResponseCache> store) {
+        ResponseCache s = null;
+        try {
+            s = store.get();
+            s.clear();
+        } catch (RuntimeException e) {
+            if (s == null || OpenStores.snapshot().contains(s)) { // a store closed meanwhile has nothing to clear
+                failures.add(e);
+            }
+        }
+    }
+
+    /** Throws the first failure, with the others attached as suppressed. */
+    private static void throwFirst(List<RuntimeException> failures) {
+        if (failures.isEmpty()) {
+            return;
+        }
+        RuntimeException first = failures.get(0);
+        for (int i = 1; i < failures.size(); i++) {
+            first.addSuppressed(failures.get(i));
+        }
+        throw first;
     }
 
     static boolean isAndroid() {

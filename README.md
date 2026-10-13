@@ -597,12 +597,16 @@ cachedAt -> cachedAt.plus(5, ChronoUnit.MINUTES)                  // or any lamb
 Employees.clearTableCache();                     // GridBaseTable: every cached query on its tab
 Employee.PROPERTIES.worksheet().clearCache();    // same, from any Worksheet
 Employee.PROPERTIES.clearAllCache();             // every tab, every spreadsheet in the cache file
+GridBase.deleteAllCache();                       // all cached data in the process: every open cache store, plus the default cache file
 Employee.PROPERTIES.cache().orElseThrow().purgeExpired(Instant.now()); // reclaim space (NETWORK_FIRST loses its fallback)
 ```
 
   These only touch the cache, never the sheet (`worksheet.clear()` deletes the sheet's rows). Without a
   cache they do nothing; if the cache store fails, they throw. `clearAllCache()` also erases entries of
-  other clients that share the same cache file.
+  other clients that share the same cache file. `GridBase.deleteAllCache()` (static, e.g. on logout)
+  erases every cache store open in the process, whatever its file or backend (custom `cacheStore`s of
+  clients created so far included), and the default cache file even if nothing has opened it yet; other
+  cache files that are not open are left alone.
 
 - If the cache itself fails (disk full, file locked, file can't be opened), the problem is logged and
   the request goes to the network as usual; caching never fails a request.

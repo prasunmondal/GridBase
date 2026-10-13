@@ -71,6 +71,7 @@ public abstract class SqlResponseCache implements ResponseCache {
             }
             throw cannotOpen(file, e);
         }
+        OpenStores.add(this);
     }
 
     /** The error to throw when a database file can't be opened. */
@@ -179,6 +180,7 @@ public abstract class SqlResponseCache implements ResponseCache {
     /** Closes the database. Subclasses that share instances per file also forget this one. */
     @Override
     public synchronized void close() {
+        OpenStores.remove(this);
         try {
             sql.close();
         } catch (RuntimeException e) {

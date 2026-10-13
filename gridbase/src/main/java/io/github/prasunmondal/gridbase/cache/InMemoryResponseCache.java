@@ -35,18 +35,26 @@ public final class InMemoryResponseCache implements ResponseCache {
 
     /** A private store, not shared with anyone. */
     public InMemoryResponseCache() {
-        this(null);
+        this(null, true);
     }
 
-    private InMemoryResponseCache(Path name) {
+    private InMemoryResponseCache(Path name, boolean register) {
         this.name = name;
+        if (register) {
+            OpenStores.add(this);
+        }
+    }
+
+    /** A private store left out of {@link CacheBackend#clearAllOpen()}: the in-memory part of another store. */
+    static InMemoryResponseCache unregistered() {
+        return new InMemoryResponseCache(null, false);
     }
 
     /** The shared store called {@code name}, created on first use. */
     public static InMemoryResponseCache open(Path name) {
         Path key = name.toAbsolutePath().normalize();
         return OPEN.compute(key, (k, existing) -> existing != null && !existing.isClosed()
-                ? existing : new InMemoryResponseCache(k));
+                ? existing : new InMemoryResponseCache(k, true));
     }
 
     @Override
@@ -106,6 +114,7 @@ public final class InMemoryResponseCache implements ResponseCache {
     @Override
     public synchronized void close() {
         closed = true;
+        OpenStores.remove(this);
         entries.clear();
         keysBySheet.clear();
         if (name != null) {
