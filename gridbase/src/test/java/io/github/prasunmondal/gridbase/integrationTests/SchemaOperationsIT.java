@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -156,10 +157,18 @@ class SchemaOperationsIT {
         Worksheet employees = TestData.employeesSheet();
         Instant before = employees.lastUpdated().fetch();
         assertTrue(before.isAfter(Instant.parse("2020-01-01T00:00:00Z")));
-
+        try {
+            Thread.sleep(2000);
+        } catch (Exception e) {}
         employees.insert(TestData.newEmployee("E011", "Timestamp Check")).execute();
 
         Instant after = employees.lastUpdated().fetch();
+
+        System.out.println("Before: " + before);
+        System.out.println("After:  " + after);
+        System.out.println("Elapsed: " +
+                Duration.between(before, after).toMillis() + " ms");
+
         assertTrue(after.isAfter(before), "expected " + after + " after " + before);
     }
 }

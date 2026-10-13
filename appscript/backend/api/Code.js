@@ -10,4 +10,12 @@ function doGet(e) {
     return SheetEngine.instance().handleGet(e);
 }
 
+function authorize() {
+  Drive.Files.list({
+    pageSize: 1,
+    fields: "files(id, name)"
+  });
+}
+
+
 // csmments
