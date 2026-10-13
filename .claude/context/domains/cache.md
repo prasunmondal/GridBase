@@ -28,8 +28,13 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
 - `SheetRequest.forceRefresh()` → `GridBase.executeRefreshing` / `Planned.forceRefresh`
   skips the cache read, gives no stale fallback, and stores the fresh reply.
 - Cache I/O failures are logged and **never fail a request**. The explicit erase calls
-  (`Worksheet.clearCache`, `GridBase.clearAllCache` / `SheetProperties.clearAllCache`, `GridBaseTable.clearTableCache`/`clearAllCache`)
-  are not requests: they throw store failures, and do nothing without a cache.
+  (`Worksheet.clearCache`, `GridBase.clearAllCache` / `SheetProperties.clearAllCache`, `GridBaseTable.clearTableCache`/`clearAllCache`,
+  static `GridBase.deleteAllCache`) are not requests: they throw store failures, and do nothing without a cache.
+- Static `GridBase.deleteAllCache()` = `CacheBackend.clearAll()` (every built-in store open in the JVM,
+  tracked weakly by package-private `OpenStores`: stores add themselves on open and remove themselves on
+  close, `SqlResponseCache` doing it for both SQL drivers; plus the default file / its journal if it exists
+  on disk) + the custom `ResponseCache`s of every `GridBase` created (weak set in `GridBase`). It clears
+  every store, then throws the first failure with the rest suppressed.
 
 ## Stores (`CacheBackend`)
 | Backend | Class | Notes |

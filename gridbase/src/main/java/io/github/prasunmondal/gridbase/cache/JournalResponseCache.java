@@ -61,7 +61,7 @@ public final class JournalResponseCache implements ResponseCache {
     private static final byte CLEAR = 4;
 
     private final Path file;
-    private final InMemoryResponseCache memory = new InMemoryResponseCache();
+    private final InMemoryResponseCache memory = InMemoryResponseCache.unregistered();
     private OutputStream out;
     private long fileBytes;
     private long compactAt;
@@ -93,6 +93,7 @@ public final class JournalResponseCache implements ResponseCache {
         } catch (IOException e) {
             throw new GridBaseException("Cannot open response cache " + file + ": " + e.getMessage(), e, false);
         }
+        OpenStores.add(this);
     }
 
     /** The shared cache for {@code file}, opened (and created) on first use. */
@@ -152,6 +153,7 @@ public final class JournalResponseCache implements ResponseCache {
     @Override
     public synchronized void close() {
         OPEN.remove(file, this);
+        OpenStores.remove(this);
         memory.close();
         if (out == null) {
             return;

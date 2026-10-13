@@ -2,10 +2,14 @@ package io.github.prasunmondal.gridbase;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.prasunmondal.gridbase.cache.CacheBackend;
 import io.github.prasunmondal.gridbase.cache.CacheExpiry;
 import io.github.prasunmondal.gridbase.cache.CacheStrategy;
+import io.github.prasunmondal.gridbase.cache.InMemoryResponseCache;
+import io.github.prasunmondal.gridbase.cache.JournalResponseCache;
 import io.github.prasunmondal.gridbase.cache.ResponseCache;
 import io.github.prasunmondal.gridbase.cache.ResponseCache.SheetRef;
+import io.github.prasunmondal.gridbase.cache.SqlResponseCache;
 import io.github.prasunmondal.gridbase.exception.GridBaseException;
 import io.github.prasunmondal.gridbase.exception.ServerException;
 import io.github.prasunmondal.gridbase.exception.TransportException;
@@ -35,7 +39,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -72,6 +78,9 @@ public final class GridBase {
         return t;
     });
 
+    /** Custom stores of the clients created so far, for {@link #deleteAllCache()}; built-in ones are tracked by their backend. */
+    private static final Set<ResponseCache> CUSTOM_CACHES = Collections.newSetFromMap(new WeakHashMap<>());
+
     private final Transport transport;
     private final ObjectMapper mapper;
     private final ZoneId zone;
@@ -91,6 +100,11 @@ public final class GridBase {
     private GridBase(Builder b) {
         this.zone = b.zone;
         this.cache = b.cache;
+        if (cache != null && !isBuiltIn(cache)) {
+            synchronized (CUSTOM_CACHES) {
+                CUSTOM_CACHES.add(cache);
+            }
+        }
         this.cacheStrategy = b.cacheStrategy;
         this.cacheExpiry = b.cacheExpiry;
         this.clock = b.clock;
@@ -188,6 +202,47 @@ public final class GridBase {
         if (cache != null) {
             cache.clear();
         }
+    }
+
+    /**
+     * Erases all cached data in this process: every entry of every response cache store that is open (any
+     * client, backend, file, spreadsheet and tab, including custom {@link ResponseCache} stores of clients
+     * created so far), and of the default cache file ({@link CacheBackend#defaultFile()}) even when no
+     * client has opened it yet. Call it e.g. on logout. Only the cache is touched, never a sheet. Other
+     * cache files that are not open in this process are left alone.
+     *
+     * @throws GridBaseException if a store fails, after every other store was cleared
+     */
+    public static void deleteAllCache() {
+        RuntimeException failure = null;
+        try {
+            CacheBackend.clearAll();
+        } catch (RuntimeException e) {
+            failure = e;
+        }
+        List<ResponseCache> custom;
+        synchronized (CUSTOM_CACHES) {
+            custom = new ArrayList<>(CUSTOM_CACHES);
+        }
+        for (ResponseCache store : custom) {
+            try {
+                store.clear();
+            } catch (RuntimeException e) {
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    private static boolean isBuiltIn(ResponseCache cache) {
+        return cache instanceof SqlResponseCache || cache instanceof JournalResponseCache
+                || cache instanceof InMemoryResponseCache;
     }
 
     private CompletableFuture<ExecutionResponse> submit(List<Operation> operations, boolean async, boolean refresh) {
