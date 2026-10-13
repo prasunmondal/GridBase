@@ -1,7 +1,7 @@
 ---
 status: VERIFIED
 last_verified: 2026-10-10
-sources: [appscript/backend/parser/RequestValidator.js, appscript/common/, appscript/deploy.sh, gridbase/src/test/java/io/github/prasunmondal/gridbase/integrationTests/ItConfig.java]
+sources: [appscript/backend/parser/RequestValidator.js, appscript/common/, appscript/deploy.bat, gridbase/src/test/java/io/github/prasunmondal/gridbase/integrationTests/ItConfig.java]
 ---
 # Known issues and technical debt
 

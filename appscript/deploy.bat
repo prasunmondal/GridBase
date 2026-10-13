@@ -6,11 +6,11 @@ set -e
 # Configuration
 ###############################################
 
-PROJECT_DIR="/c/Projects/hibernate.gsheets"
+PROJECT_DIR="D:\Projects\GridBase\appscript"
 
 # Leave empty ("") to create a new deployment.
 # Otherwise the existing deployment will be updated.
-DEPLOYMENT_ID_TO_USE="AKfycbzAi9V4b5WMBU-_lUJxdBeVm--k42Gc_SZ4cw5z8K9khSsWd8-ySQ3Lo_91gkSgSxqX"
+DEPLOYMENT_ID_TO_USE=""
 
 ###############################################
 # Script

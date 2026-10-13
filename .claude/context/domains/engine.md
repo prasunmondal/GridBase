@@ -1,7 +1,7 @@
 ---
 status: VERIFIED
 last_verified: 2026-10-12
-sources: [appscript/backend/, appscript/deploy.sh, gridbase/src/test/emulator/engine-emulator.js]
+sources: [appscript/backend/, appscript/deploy.bat, gridbase/src/test/emulator/engine-emulator.js]
 ---
 # Engine (Apps Script, `appscript/`)
 

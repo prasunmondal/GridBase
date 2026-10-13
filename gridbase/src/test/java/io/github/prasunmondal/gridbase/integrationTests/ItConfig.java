@@ -22,7 +22,7 @@ import java.time.ZoneId;
 public final class ItConfig {
 
     public static final String ENDPOINT = setting("hs.endpoint", "HS_ENDPOINT",
-            "https://script.google.com/macros/s/AKfycbwOdzpWtT1AVeym81YPa22yAjLnTTB_CqoZ2ra8St_gTlNbyJq6ibjUCCb5dD7v5Eg/exec");
+            "https://script.google.com/macros/s/AKfycbzCSQLCo4LoLWjh-BKl-FdNkgnqiECJQcs_FajDe5VEtdFxijwdSE8ahLbON-O6SOJ3/exec");
 
     public static final String SPREADSHEET_ID = setting("hs.spreadsheetId", "HS_SPREADSHEET_ID",
             "1C8rsAWa0XfpxfHSb-F-FALSvmCT1knQ5lBoegQ8Phwc");
