@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-10-13
 sources: [gridbase/src/test/, gridbase/pom.xml]
 ---
 # Testing
@@ -20,6 +20,7 @@ mvn test -pl gridbase -Dtest=RequestContractTest[#method]
 mvn test -pl gridbase -Dtest='Cache*Test' [-Dhs.cacheBackend=JOURNAL|MEMORY|SQLITE]
 mvn test -pl gridbase -Dtest=InsertIT [-Dhs.endpoint=... -Dhs.spreadsheetId=... -Dhs.timeZone=...]
 node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dhs.endpoint=http://127.0.0.1:8765/macros/s/LOCAL/exec
+# HS_DRIVE=off: no Drive, like a deployment that has not opted in (only lastUpdated ITs fail)
 ```
 
 ## Conventions

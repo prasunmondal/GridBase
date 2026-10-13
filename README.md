@@ -626,9 +626,10 @@ if (lastSeen == null || changed.isAfter(lastSeen)) {
 - The time covers the whole spreadsheet, so an edit to another tab also looks like a change.
 - Drive updates the time when it saves the edit, so a change made seconds earlier may not show yet.
 - Inside a batch it runs before the batch's row changes are committed, so it does not include them.
-- Needs a **redeployed engine authorized for Drive metadata** (see
-  [Deployment](#deployment-auth-and-errors)). An older engine answers
-  *Unsupported operation type: GET_LAST_UPDATED*.
+- **Opt-in on the engine**: the deployment must enable Drive (see
+  [Enabling `lastUpdated()`](#enabling-lastupdated)). Without it only `lastUpdated()` fails, with
+  *GET_LAST_UPDATED needs the Advanced Drive service*; every other call works as before. An engine
+  older than this feature answers *Unsupported operation type: GET_LAST_UPDATED*.
 
 ### Forcing a refresh
 
@@ -813,14 +814,35 @@ Requests only combine when they go through the same client — the same `GridBas
   `TransportException` whose message names the page title and the usual causes.
 - **`ServerException`** carries the engine's message, JS exception type, Apps Script stack trace and
   debug entries.
-- **Drive permission** (for `lastUpdated()`): the engine reads the spreadsheet's modified time
-  through the Advanced Drive service with the read-only `drive.metadata.readonly` scope (it can read
-  file names and dates, never contents). `appsscript.json` lists its scopes explicitly. After
-  pushing an engine with this change, open the script in the Apps Script editor, run any function
-  and accept the consent screen as the deploying account, then create a new deployment version.
-  Until that account consents, requests can fail with an authorization error.
 - **Custom transport**: implement `Transport` (one method) for your own HTTP stack or to stub the
   engine in tests (`FakeTransport` in `gridbase/src/test` is an example).
+
+### Enabling `lastUpdated()`
+
+The engine ships **without** Drive access, so deploying it never needs a new approval. To use
+`lastUpdated()`, opt in once per deployment:
+
+1. In `appscript/appsscript.json`, enable the Advanced Drive service and list the scopes explicitly
+   (listing them keeps Drive access to read-only metadata: file names and dates, never contents):
+
+   ```json
+   "dependencies": {
+     "enabledAdvancedServices": [{ "userSymbol": "Drive", "serviceId": "drive", "version": "v3" }]
+   },
+   "oauthScopes": [
+     "https://www.googleapis.com/auth/spreadsheets",
+     "https://www.googleapis.com/auth/drive.metadata.readonly"
+   ]
+   ```
+
+2. Push the code, open the script in the Apps Script editor **as the deploying account**, run any
+   function and accept the consent screen.
+3. Create a new deployment version.
+
+Do step 2 before step 3. Apps Script checks the declared scopes before running anything, so a
+deployment whose scopes were never approved answers **every** request, not just `lastUpdated()`,
+with an authorization page. The SDK reports that as a `TransportException` ("received an HTML page").
+Deploying with clasp does not show the consent screen.
 
 ### Retries
 

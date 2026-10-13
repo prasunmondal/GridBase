@@ -15,6 +15,7 @@
  *                       (default: 1C8rsAWa0XfpxfHSb-F-FALSvmCT1knQ5lBoegQ8Phwc)
  *   HS_DEPLOYMENT_ID    the only deployment id that answers (default LOCAL); others get 404 like Google
  *   TZ                  spreadsheet time zone (default Asia/Kolkata)
+ *   HS_DRIVE=off        no Advanced Drive service, like a deployment that has not opted in
  *
  * Fidelity notes (approximations of Google Sheets):
  *   - setValues() parses text like a user typing it: "123" -> number, "2026-09-30" -> date
@@ -175,8 +176,9 @@ global.SpreadsheetApp = {
   }
 };
 
-// Advanced Drive service (v3), only the metadata the engine reads.
-global.Drive = {
+// Advanced Drive service (v3), only the metadata the engine reads. It is opt-in on real deployments;
+// HS_DRIVE=off emulates one that has not enabled it.
+if (process.env.HS_DRIVE !== 'off') global.Drive = {
   Files: {
     get(id, options) {
       const ss = spreadsheets.get(id);

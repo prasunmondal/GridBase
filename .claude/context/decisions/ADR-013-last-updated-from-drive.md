@@ -1,7 +1,7 @@
 # ADR-013: Spreadsheet last-updated time comes from Drive metadata, never cached
 
 ## Status
-Accepted
+Superseded by ADR-014
 
 ## Date
 2026-10-13

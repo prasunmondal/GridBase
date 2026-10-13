@@ -29,9 +29,9 @@ Layers: `parser/`, `compiler/` + `execution/predicate/compiled/` (filter compila
 - Filters compare in JavaScript (e.g. `CompiledEqualsPredicate` compares `String(cell)` to
   `String(expected)`). The SDK shapes values for this (see `wire-contract.md`).
 - The engine cannot delete worksheets.
-- GET_LAST_UPDATED returns Drive's `modifiedTime` of the whole spreadsheet (Advanced Drive service,
-  scope `drive.metadata.readonly`, scopes listed explicitly in `appsscript.json`: a new Google service
-  needs its scope added there). It takes no lock and runs before the request's commit (ADR-013).
+- GET_LAST_UPDATED returns Drive's `modifiedTime` of the whole spreadsheet. Drive is **opt-in per
+  deployment** (the shipped manifest needs only Sheets). Without it only this operation fails. It takes
+  no lock and runs before the request's commit (ADR-014).
 - A value for a column listed in `optionalColumns` that the sheet lacks is dropped in
   `ExecutionCompiler`, not rejected. Other references to the column still fail (ADR-012).
 

@@ -120,12 +120,26 @@ class ExecutionService {
     //
     // Drive's modified time of the whole spreadsheet file:
     // it covers every tab and edits made outside the engine.
-    // Needs the Advanced Drive service and the
-    // drive.metadata.readonly scope (appsscript.json).
     // Row changes of this request commit after it runs.
+    //
+    // Opt-in: the deployment must enable the Advanced Drive
+    // service and the drive.metadata.readonly scope in
+    // appsscript.json. Without it only this operation fails;
+    // a scope the owner has not approved would stop them all.
     //
     executeGetLastUpdated(context,
                           operation) {
+
+        if (typeof Drive === "undefined") {
+
+            throw new Error(
+                "GET_LAST_UPDATED needs the Advanced Drive service. " +
+                "Enable it in appsscript.json, approve the Drive " +
+                "metadata permission and redeploy (see the README " +
+                "section on lastUpdated)."
+            );
+
+        }
 
         const file =
             Drive.Files.get(
