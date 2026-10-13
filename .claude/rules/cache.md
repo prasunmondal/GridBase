@@ -9,7 +9,7 @@ paths:
 ---
 # Response cache: invariants (ADR-005, ADR-009, ADR-010)
 
-- Cache only fully read-only requests. Store the raw engine reply. Hits are re-parsed by
+- Cache only fully cacheable requests (`isCacheable()`; GET_LAST_UPDATED is read-only but never cached). Store the raw engine reply. Hits are re-parsed by
   `ResponseParser`.
 - Every non-read-only request invalidates its worksheets, **even when it fails**.
 - Cache I/O failures are logged and never fail a request.

@@ -91,6 +91,7 @@ class FakeRange {
       const target = this.sheet.cells[this.row - 1 + r] || (this.sheet.cells[this.row - 1 + r] = []);
       line.forEach((v, c) => { target[this.col - 1 + c] = coerce(v); });
     });
+    this.sheet.spreadsheet.touch();
     return this;
   }
   clearContent() {
@@ -99,12 +100,14 @@ class FakeRange {
       if (!target) continue;
       for (let c = 0; c < this.numCols; c++) target[this.col - 1 + c] = '';
     }
+    this.sheet.spreadsheet.touch();
     return this;
   }
 }
 
 class FakeSheet {
-  constructor(name) {
+  constructor(name, spreadsheet) {
+    this.spreadsheet = spreadsheet;
     this.name = name;
     this.id = nextSheetId++;
     this.cells = [];
@@ -135,20 +138,24 @@ class FakeSheet {
     if (row < 1 || row > this.maxRows) throw new Error('Those rows are out of bounds.');
     this.cells.splice(row - 1, 1);
     this.maxRows--;
+    this.spreadsheet.touch();
     return this;
   }
 }
 
 class FakeSpreadsheet {
-  constructor(id) { this.id = id; this.sheets = new Map(); }
+  constructor(id) { this.id = id; this.sheets = new Map(); this.modifiedAt = Date.now(); }
+  // Drive's modifiedTime; strictly increasing so back-to-back writes stay distinguishable.
+  touch() { this.modifiedAt = Math.max(Date.now(), this.modifiedAt + 1); }
   getId() { return this.id; }
   getSheetByName(name) { return this.sheets.get(name) || null; }
   insertSheet(name) {
     if (this.sheets.has(name)) {
       throw new Error(`A sheet with the name "${name}" already exists. Please enter another name.`);
     }
-    const s = new FakeSheet(name);
+    const s = new FakeSheet(name, this);
     this.sheets.set(name, s);
+    this.touch();
     return s;
   }
 }
@@ -165,6 +172,17 @@ global.SpreadsheetApp = {
       throw new Error('Unexpected error while getting the method or property openById on object SpreadsheetApp.');
     }
     return ss;
+  }
+};
+
+// Advanced Drive service (v3), only the metadata the engine reads.
+global.Drive = {
+  Files: {
+    get(id, options) {
+      const ss = spreadsheets.get(id);
+      if (!ss) throw new Error(`API call to drive.files.get failed with error: File not found: ${id}.`);
+      return { modifiedTime: new Date(ss.modifiedAt).toISOString() };
+    }
   }
 };
 

@@ -44,13 +44,13 @@ through a typed, fluent API instead of hand-building JSON.
 |---|---|
 | Engine | The Apps Script web app in `appscript/`, reached at its `/exec` URL |
 | Spreadsheet / worksheet / tab | A Google file (`spreadsheetId`) / one sheet inside it (the engine calls it `worksheet`; `SheetProperties.tabName`) |
-| Operation | One engine op (SELECT, INSERT, UPDATE, DELETE, UPSERT, CLONE, CREATE, CLEAR, ADD_COLUMNS, GET_COLUMNS), an immutable `spec.Operation` |
+| Operation | One engine op (SELECT, INSERT, UPDATE, DELETE, UPSERT, CLONE, CREATE, CLEAR, ADD_COLUMNS, GET_COLUMNS, GET_LAST_UPDATED), an immutable `spec.Operation` |
 | Spec | A builder (`spec/*Spec`) that produces one Operation |
 | Request | One HTTP POST carrying one or more Operations |
 | Schema op | CREATE / CLEAR / ADD_COLUMNS: applied immediately, not part of the row commit |
 | Combined call | Several callers' requests sent as one HTTP request (queues) |
 | Slice | The part of a combined reply belonging to one caller (`ResponseParser.slice`) |
-| Read-only request | A request containing only SELECT / GET_COLUMNS, so it is cacheable and retryable |
+| Read-only request | A request containing only SELECT / GET_COLUMNS / GET_LAST_UPDATED, so it is retryable; cacheable unless it has GET_LAST_UPDATED |
 
 ## Related
 - `architecture.md`, `decisions/README.md`, README "Install" and "API tour"

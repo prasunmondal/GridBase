@@ -99,6 +99,15 @@ public final class Worksheet {
         return new SchemaSpecs.GetColumns(this);
     }
 
+    /**
+     * GET_LAST_UPDATED; {@code lastUpdated().fetch()} returns when the whole spreadsheet (any tab, also
+     * edits made directly in Google Sheets) was last modified. Never cached; use it to decide whether
+     * cached data is stale.
+     */
+    public SchemaSpecs.LastUpdated lastUpdated() {
+        return new SchemaSpecs.LastUpdated(this);
+    }
+
     public SchemaSpecs.AddColumns addColumns(String... columns) {
         return new SchemaSpecs.AddColumns(this, columns);
     }

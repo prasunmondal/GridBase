@@ -550,7 +550,8 @@ Room queries the database off the main thread only, which matches how the SDK mu
 
 ### What is cached
 
-- Only requests made entirely of reads — SELECT and column lookups (`columns()`). The key is the
+- Only requests made entirely of reads — SELECT and column lookups (`columns()`). `lastUpdated()`
+  is a read but is never cached. The key is the
   request itself (worksheet, filters, sort, columns, limit, offset), so different queries are cached
   separately.
 - The engine's reply is stored and mapped to `Row`s / POJOs exactly like a live reply, so typed
@@ -590,7 +591,7 @@ cachedAt -> cachedAt.plus(5, ChronoUnit.MINUTES)                  // or any lamb
 - Clients sharing the same cache file see each other's invalidations.
 - Changes made **outside** — in the Sheets UI, by Apps Script triggers, or by a client not using
   this cache file — are only picked up when entries expire. Erase cached data by hand when you know
-  the sheet changed:
+  the sheet changed (`lastUpdated()`, below, tells you):
 
 ```java
 Employees.clearTableCache();                     // GridBaseTable: every cached query on its tab
@@ -605,6 +606,29 @@ Employee.PROPERTIES.cache().orElseThrow().purgeExpired(Instant.now()); // reclai
 
 - If the cache itself fails (disk full, file locked, file can't be opened), the problem is logged and
   the request goes to the network as usual; caching never fails a request.
+
+### Detecting outside changes: `lastUpdated()`
+
+`worksheet.lastUpdated().fetch()` returns the `Instant` Google Drive last saw **the spreadsheet**
+modified. It counts edits made in the Sheets UI, by other scripts and through GridBase, on **any tab**.
+It is one small request and is never served from the cache, so it is a cheap way to decide whether
+cached data may be stale:
+
+```java
+Worksheet ws = Employee.PROPERTIES.worksheet();
+Instant changed = ws.lastUpdated().fetch();
+if (lastSeen == null || changed.isAfter(lastSeen)) {
+    ws.clearCache();          // clear every tab of this spreadsheet you cache: the time covers all tabs
+    lastSeen = changed;
+}
+```
+
+- The time covers the whole spreadsheet, so an edit to another tab also looks like a change.
+- Drive updates the time when it saves the edit, so a change made seconds earlier may not show yet.
+- Inside a batch it runs before the batch's row changes are committed, so it does not include them.
+- Needs a **redeployed engine authorized for Drive metadata** (see
+  [Deployment](#deployment-auth-and-errors)). An older engine answers
+  *Unsupported operation type: GET_LAST_UPDATED*.
 
 ### Forcing a refresh
 
@@ -789,13 +813,19 @@ Requests only combine when they go through the same client — the same `GridBas
   `TransportException` whose message names the page title and the usual causes.
 - **`ServerException`** carries the engine's message, JS exception type, Apps Script stack trace and
   debug entries.
+- **Drive permission** (for `lastUpdated()`): the engine reads the spreadsheet's modified time
+  through the Advanced Drive service with the read-only `drive.metadata.readonly` scope (it can read
+  file names and dates, never contents). `appsscript.json` lists its scopes explicitly. After
+  pushing an engine with this change, open the script in the Apps Script editor, run any function
+  and accept the consent screen as the deploying account, then create a new deployment version.
+  Until that account consents, requests can fail with an authorization error.
 - **Custom transport**: implement `Transport` (one method) for your own HTTP stack or to stub the
   engine in tests (`FakeTransport` in `gridbase/src/test` is an example).
 
 ### Retries
 
 `RetryPolicy.defaults()` retries 3 times with back-off, **only for read-only requests** (SELECT,
-GET_COLUMNS), and only for retryable failures: I/O errors, timeouts, HTTP 408/429/5xx, and engine
+GET_COLUMNS, GET_LAST_UPDATED), and only for retryable failures: I/O errors, timeouts, HTTP 408/429/5xx, and engine
 errors like *"too many times in a short time"* or lock timeouts. A daily-quota error is never retried.
 Writes are not retried because a timed-out write may already be committed; opt in with
 `RetryPolicy.defaults().retryingWrites(true)` only if duplicates are acceptable.

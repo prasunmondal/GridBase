@@ -10,7 +10,7 @@ import java.util.Objects;
  *
  * <p>Only failures flagged {@link GridBaseException#isRetryable() retryable} are retried
  * (network errors, timeouts, HTTP 429/5xx, Apps Script quota/lock errors). By default only
- * <b>read-only</b> requests (SELECT, GET_COLUMNS) are retried: a timed-out write may already have been
+ * <b>read-only</b> requests (SELECT, GET_COLUMNS, GET_LAST_UPDATED) are retried: a timed-out write may already have been
  * committed by the engine, and re-sending an INSERT would duplicate rows.</p>
  */
 public final class RetryPolicy {

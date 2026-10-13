@@ -11,12 +11,14 @@ import io.github.prasunmondal.gridbase.result.AddColumnsResult;
 import io.github.prasunmondal.gridbase.result.ClearResult;
 import io.github.prasunmondal.gridbase.result.ColumnsResult;
 import io.github.prasunmondal.gridbase.result.ExecutionResponse;
+import io.github.prasunmondal.gridbase.result.LastUpdatedResult;
 import io.github.prasunmondal.gridbase.result.OperationResult;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import io.github.prasunmondal.gridbase.result.WorksheetCreated;
 import io.github.prasunmondal.gridbase.spec.Operation;
 
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -139,6 +141,12 @@ public final class ResponseParser {
             case CLEAR_WORKSHEET:
                 return new ClearResult(id, node.path("worksheet").asText(op.worksheet()),
                         node.path("rowsCleared").asInt(), node.path("columnsCleared").asInt());
+            case GET_LAST_UPDATED:
+                if (!node.path("lastUpdated").canConvertToLong()) {
+                    throw new IllegalStateException("GET_LAST_UPDATED reply has no lastUpdated time");
+                }
+                return new LastUpdatedResult(id, node.path("spreadsheetId").asText(op.spreadsheetId()),
+                        Instant.ofEpochMilli(node.path("lastUpdated").asLong()));
             default:
                 throw new IllegalStateException("Unhandled operation type " + op.type());
         }

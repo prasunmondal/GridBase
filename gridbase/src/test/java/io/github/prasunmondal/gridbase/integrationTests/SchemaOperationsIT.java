@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -21,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * CREATE_WORKSHEET, GET_COLUMNS, ADD_COLUMNS, CLEAR_WORKSHEET.
+ * CREATE_WORKSHEET, GET_COLUMNS, ADD_COLUMNS, CLEAR_WORKSHEET, GET_LAST_UPDATED.
  *
  * <p>{@link #fullLifecycleOnNewWorksheet()} creates one new tab named {@code IT_Created_<timestamp>} per
  * run, because the engine has no operation to delete a worksheet. Delete old ones by hand.</p>
@@ -147,5 +148,18 @@ class SchemaOperationsIT {
             ServerException e = assertThrows(ServerException.class, op::run);
             assertTrue(e.getServerMessage().contains("Worksheet not found"));
         }
+    }
+
+    @Test
+    @DisplayName("lastUpdated moves forward after a write, and is not served from the cache")
+    void lastUpdatedAdvancesAfterWrite() {
+        Worksheet employees = TestData.employeesSheet();
+        Instant before = employees.lastUpdated().fetch();
+        assertTrue(before.isAfter(Instant.parse("2020-01-01T00:00:00Z")));
+
+        employees.insert(TestData.newEmployee("E011", "Timestamp Check")).execute();
+
+        Instant after = employees.lastUpdated().fetch();
+        assertTrue(after.isAfter(before), "expected " + after + " after " + before);
     }
 }

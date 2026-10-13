@@ -30,6 +30,7 @@ confirm their rationale once.
 | [010](ADR-010-shared-sql-cache-base.md) | SQL stores share `SqlResponseCache`; `org.sqlite` isolated | Accepted |
 | [011](ADR-011-rename-to-gridbase.md) | Java API renamed from `hibernatesheets` to `gridbase`, clean break | Accepted |
 | [012](ADR-012-optional-columns-dropped-by-engine.md) | `@OptionalColumn` values are dropped by the engine when the sheet lacks the column | Accepted |
+| [013](ADR-013-last-updated-from-drive.md) | Spreadsheet last-updated time comes from Drive metadata, never cached | Accepted |
 
 ## Template (`ADR-NNN-kebab-title.md`, keep it under about 60 lines)
 ```markdown

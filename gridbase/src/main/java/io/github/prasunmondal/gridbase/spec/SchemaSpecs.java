@@ -5,9 +5,11 @@ import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.result.AddColumnsResult;
 import io.github.prasunmondal.gridbase.result.ClearResult;
 import io.github.prasunmondal.gridbase.result.ColumnsResult;
+import io.github.prasunmondal.gridbase.result.LastUpdatedResult;
 import io.github.prasunmondal.gridbase.result.OperationResult;
 import io.github.prasunmondal.gridbase.result.WorksheetCreated;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -63,6 +65,22 @@ public final class SchemaSpecs {
         /** Shortcut for {@code execute().columns()}. */
         public List<String> fetch() {
             return execute().columns();
+        }
+    }
+
+    /**
+     * GET_LAST_UPDATED: when the <b>spreadsheet</b> (any tab, including edits made directly in Google
+     * Sheets) was last modified, from Drive. Never served from the response cache. Needs an engine
+     * deployed with this feature and authorized for Drive metadata.
+     */
+    public static final class LastUpdated extends Simple<LastUpdatedResult> {
+        public LastUpdated(Worksheet worksheet) {
+            super(worksheet, OperationType.GET_LAST_UPDATED, LastUpdatedResult.class);
+        }
+
+        /** Shortcut for {@code execute().lastUpdated()}. */
+        public Instant fetch() {
+            return execute().lastUpdated();
         }
     }
 

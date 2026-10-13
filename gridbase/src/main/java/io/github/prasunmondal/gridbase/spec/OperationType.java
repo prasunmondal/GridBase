@@ -11,11 +11,20 @@ public enum OperationType {
     CREATE_WORKSHEET,
     CLEAR_WORKSHEET,
     GET_COLUMNS,
-    ADD_COLUMNS;
+    ADD_COLUMNS,
+    GET_LAST_UPDATED;
 
     /** True for operations that never modify the spreadsheet (safe to retry). */
     public boolean isReadOnly() {
-        return this == SELECT || this == GET_COLUMNS;
+        return this == SELECT || this == GET_COLUMNS || this == GET_LAST_UPDATED;
+    }
+
+    /**
+     * True for read-only operations whose replies may be served from the response cache. GET_LAST_UPDATED
+     * is not: it exists to check whether cached data is stale.
+     */
+    public boolean isCacheable() {
+        return isReadOnly() && this != GET_LAST_UPDATED;
     }
 
     /** True for operations whose result is a list of rows. */

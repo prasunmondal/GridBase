@@ -209,4 +209,13 @@ class RequestContractTest {
         new Repository<>(db, Contact.class).upsert(contact());
         assertEquals(json("[\"Phone No\"]"), transport.lastOperation().path("optionalColumns"));
     }
+
+    @Test
+    void lastUpdatedSendsBareOperationAndParsesEpochMillis() {
+        FakeTransport t = FakeTransport.replying("\"spreadsheetId\":\"S\",\"lastUpdated\":1760000000000");
+        GridBase client = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
+        assertEquals(Instant.ofEpochMilli(1760000000000L), client.worksheet("T").lastUpdated().fetch());
+        assertEquals(json("{\"id\":\"op-1\",\"type\":\"GET_LAST_UPDATED\",\"spreadsheetId\":\"S\",\"worksheet\":\"T\"}"),
+                t.lastOperation());
+    }
 }

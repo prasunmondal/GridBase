@@ -41,7 +41,8 @@ class ResponseCacheTest {
         StringBuilder sb = new StringBuilder("{\"success\":true,\"requestId\":\"r\",\"results\":[");
         for (int i = 0; i < req.path("operations").size(); i++) {
             sb.append(i == 0 ? "" : ",").append("{\"operationId\":\"op-").append(i + 1)
-                    .append("\",\"rowCount\":1,\"rows\":[{\"id\":\"1\",\"v\":").append(rowsVersion).append("}]}");
+                    .append("\",\"rowCount\":1,\"rows\":[{\"id\":\"1\",\"v\":").append(rowsVersion).append("}]")
+                    .append(",\"lastUpdated\":").append(rowsVersion * 1000L).append("}");
         }
         return sb.append("]}").toString();
     });
@@ -61,6 +62,17 @@ class ResponseCacheTest {
                 .cache(cache, strategy, expiry)
                 .clock(clock)
                 .build();
+    }
+
+    @Test
+    void lastUpdatedIsNeverServedFromCache() {
+        GridBase db = client(CacheStrategy.CACHE_FIRST, CacheExpiry.ttlMinutes(10));
+        db.worksheet("Emp").select().fetch();
+        assertEquals(Instant.ofEpochMilli(1000), db.worksheet("Emp").lastUpdated().fetch());
+        rowsVersion = 2;
+        assertEquals(Instant.ofEpochMilli(2000), db.worksheet("Emp").lastUpdated().fetch());
+        assertEquals(1, version(db.worksheet("Emp").select().fetch()), "the SELECT is still a cache hit");
+        assertEquals(3, transport.requests.size());
     }
 
     private static int version(List<Row> rows) {

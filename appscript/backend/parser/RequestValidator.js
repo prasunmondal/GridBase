@@ -91,6 +91,10 @@ class RequestValidator {
                 this.validateAddColumns(operation, index);
                 break;
 
+            case OperationType.GET_LAST_UPDATED:
+                this.validateGetLastUpdated(operation, index);
+                break;
+
             case OperationType.CLEAR_WORKSHEET:
 
                 this.validateClearWorksheet(
@@ -125,6 +129,17 @@ class RequestValidator {
 
             "Operation " + index +
             " must specify a worksheet."
+        );
+
+    }
+
+    static validateGetLastUpdated(operation,
+                                  index) {
+
+        this.require(
+            operation.getSpreadsheetId(),
+            "Operation " + index +
+            " must specify a spreadsheet."
         );
 
     }

@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-12
+last_verified: 2026-10-13
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
@@ -50,7 +50,7 @@ Tests: `JsCompatTest`, `SelectQueryIT`.
 ## Retries (`RetryPolicy`, ADR-004)
 - Only `isRetryable()` failures are retried: I/O errors, timeouts, HTTP 408/429/5xx, Apps Script
   "too many times" and lock-timeout errors. A **daily-quota error is never retried.**
-- By default only read-only requests (SELECT / GET_COLUMNS) are retried. Writes are retried only
+- By default only read-only requests (SELECT / GET_COLUMNS / GET_LAST_UPDATED) are retried. Writes are retried only
   with `retryingWrites(true)`, because a timed-out write may already be committed.
 
 ## Related

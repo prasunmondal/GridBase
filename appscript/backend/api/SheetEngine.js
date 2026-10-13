@@ -94,7 +94,8 @@ class SheetEngine {
 
         return request.getOperations().some(function (operation) {
             return operation.type !== OperationType.SELECT &&
-                operation.type !== OperationType.GET_COLUMNS;
+                operation.type !== OperationType.GET_COLUMNS &&
+                operation.type !== OperationType.GET_LAST_UPDATED;
         });
 
     }

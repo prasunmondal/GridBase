@@ -73,6 +73,13 @@ class ExecutionService {
                     operation
                 );
 
+            case OperationType.GET_LAST_UPDATED:
+
+                return this.executeGetLastUpdated(
+                    context,
+                    operation
+                );
+
             default:
 
                 return this.executeRowOperation(
@@ -105,6 +112,40 @@ class ExecutionService {
 
             columnsCleared:
             result.columnsCleared
+
+        });
+
+    }
+
+    //
+    // Drive's modified time of the whole spreadsheet file:
+    // it covers every tab and edits made outside the engine.
+    // Needs the Advanced Drive service and the
+    // drive.metadata.readonly scope (appsscript.json).
+    // Row changes of this request commit after it runs.
+    //
+    executeGetLastUpdated(context,
+                          operation) {
+
+        const file =
+            Drive.Files.get(
+                operation.getSpreadsheetId(),
+                {
+                    fields: "modifiedTime",
+                    supportsAllDrives: true
+                }
+            );
+
+        context.response.addResult({
+
+            operationId:
+                operation.getId(),
+
+            spreadsheetId:
+                operation.getSpreadsheetId(),
+
+            lastUpdated:
+                new Date(file.modifiedTime).getTime()
 
         });
 

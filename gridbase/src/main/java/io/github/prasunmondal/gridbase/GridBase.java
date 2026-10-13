@@ -205,6 +205,9 @@ public final class GridBase {
                     .whenComplete((reply, failure) -> invalidateWrites(ops))
                     .thenApply(Reply::parsed);
         }
+        if (!isCacheable(ops)) {
+            return fetch(ops, true, async).thenApply(Reply::parsed);
+        }
         CachedRead read = refresh ? refreshing(ops) : lookup(ops);
         if (read.hit()) {
             return now(() -> parser.parse(read.entry().get().reply(), ops));
@@ -241,7 +244,7 @@ public final class GridBase {
         List<Integer> toSend = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             List<Operation> ops = requests.get(i);
-            if (cache != null && isReadOnly(ops)) {
+            if (cache != null && isCacheable(ops)) {
                 CachedRead read = planned.get(i).forceRefresh() ? refreshing(ops) : lookup(ops);
                 reads[i] = read;
                 if (read.hit()) {
@@ -335,6 +338,10 @@ public final class GridBase {
 
     static boolean isReadOnly(List<Operation> operations) {
         return operations.stream().allMatch(op -> op.type().isReadOnly());
+    }
+
+    static boolean isCacheable(List<Operation> operations) {
+        return operations.stream().allMatch(op -> op.type().isCacheable());
     }
 
     /** Applied by the engine immediately rather than at commit, so never re-sent as part of a retry-alone. */

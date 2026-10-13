@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-12
+last_verified: 2026-10-13
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/cache/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java
@@ -16,7 +16,8 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
 ## How it works
 - Opt-in: `SheetProperties.shallCache(true)` (plus `cacheFile`, `cacheBackend`, `cacheStore` for a custom
   `ResponseCache`, `cacheExpiry`, `cacheStrategy`) or `GridBase.Builder.cache(store, strategy, expiry)`.
-- In `GridBase.execute`, **only fully read-only requests** are cached. The key is the SHA-256
+- In `GridBase.execute`, **only fully cacheable requests** (`OperationType.isCacheable()`: read-only
+  minus GET_LAST_UPDATED, which exists to detect staleness) are cached. The key is the SHA-256
   of the serialized operations. The **raw engine reply** is stored, tagged with the worksheets read.
 - Hits are re-parsed by `ResponseParser`, so POJO mapping is identical. Pre/post network actions do
   **not** fire on hits.
