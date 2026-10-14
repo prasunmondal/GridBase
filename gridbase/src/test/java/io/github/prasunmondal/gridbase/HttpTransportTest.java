@@ -9,9 +9,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -123,6 +125,132 @@ class HttpTransportTest {
             GridBase db = GridBase.builder().endpoint(s.base() + "/exec").defaultSpreadsheetId("S").build();
             assertEquals(List.of("id", "qty"), db.worksheet("Orders").columns().fetch());
             assertTrue(s.log.get(0).contains("\"type\":\"GET_COLUMNS\""));
+        }
+    }
+
+    @Test
+    void redirectEdgeCases() throws Exception {
+        try (Server s = new Server()) {
+            s.http.createContext("/temporary", ex -> {
+                ex.getResponseHeaders().add("Location", "/target");
+                reply(ex, 307, null, "");
+            });
+            s.http.createContext("/permanent", ex -> {
+                ex.getResponseHeaders().add("Location", s.base() + "/target");
+                reply(ex, 308, null, "");
+            });
+            s.http.createContext("/target", ex -> {
+                s.log.add(ex.getRequestMethod() + " " + new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                reply(ex, 200, "application/json", "{\"ok\":true}");
+            });
+            s.http.createContext("/nowhere", ex -> reply(ex, 302, null, ""));
+            s.http.createContext("/loop", ex -> {
+                s.log.add("loop");
+                ex.getResponseHeaders().add("Location", "/loop");
+                reply(ex, 302, null, "");
+            });
+            s.http.start();
+
+            assertEquals("{\"ok\":true}", HttpTransport.builder(s.base() + "/temporary").build().send("{\"q\":7}"));
+            assertEquals("{\"ok\":true}", HttpTransport.builder(s.base() + "/permanent").build().send("{\"q\":8}"));
+            assertEquals(List.of("POST {\"q\":7}", "POST {\"q\":8}"), s.log);
+
+            TransportException noLocation = assertThrows(TransportException.class,
+                    () -> HttpTransport.builder(s.base() + "/nowhere").build().send("{}"));
+            assertTrue(noLocation.getMessage().contains("without Location"));
+            assertEquals(302, noLocation.getHttpStatus());
+            assertFalse(noLocation.isRetryable());
+
+            s.log.clear();
+            TransportException loop = assertThrows(TransportException.class,
+                    () -> HttpTransport.builder(s.base() + "/loop").build().send("{}"));
+            assertTrue(loop.getMessage().contains("Too many redirects"));
+            assertFalse(loop.isRetryable());
+            assertEquals(6, s.log.size());                   // the first request plus 5 redirects
+        }
+    }
+
+    @Test
+    void timeoutsAndStatusCodes() throws Exception {
+        try (Server slow = new Server()) {
+            slow.http.createContext("/exec", ex -> {
+                try {
+                    Thread.sleep(1_000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                reply(ex, 200, "application/json", "{}");
+            });
+            slow.http.start();
+            TransportException timeout = assertThrows(TransportException.class, () -> HttpTransport
+                    .builder(slow.base() + "/exec").requestTimeout(Duration.ofMillis(100)).build().send("{}"));
+            assertTrue(timeout.isRetryable());
+            assertEquals(-1, timeout.getHttpStatus());
+            assertTrue(timeout.getMessage().startsWith("Timed out"));
+        }
+
+        int closedPort;
+        try (Server gone = new Server()) {
+            gone.http.start();
+            closedPort = gone.http.getAddress().getPort();
+        }
+        TransportException refused = assertThrows(TransportException.class,
+                () -> HttpTransport.builder("http://127.0.0.1:" + closedPort + "/exec").build().send("{}"));
+        assertTrue(refused.isRetryable());
+        assertEquals(-1, refused.getHttpStatus());
+
+        try (Server s = new Server()) {
+            for (int status : List.of(401, 404, 408, 429, 500)) {
+                s.http.createContext("/" + status, ex -> reply(ex, status, "text/plain", "x"));
+            }
+            s.http.start();
+            for (int status : List.of(408, 429, 500)) {
+                TransportException e = assertThrows(TransportException.class,
+                        () -> HttpTransport.builder(s.base() + "/" + status).build().send("{}"));
+                assertTrue(e.isRetryable(), "HTTP " + status);
+                assertEquals(status, e.getHttpStatus());
+            }
+            TransportException unauthorized = assertThrows(TransportException.class,
+                    () -> HttpTransport.builder(s.base() + "/401").build().send("{}"));
+            assertFalse(unauthorized.isRetryable());
+            assertTrue(unauthorized.getMessage().contains("Who has access"));
+            TransportException notFound = assertThrows(TransportException.class,
+                    () -> HttpTransport.builder(s.base() + "/404").build().send("{}"));
+            assertFalse(notFound.isRetryable());
+            assertFalse(notFound.getMessage().contains("Who has access"));
+        }
+    }
+
+    @Test
+    void accessTokenSupplierCalledPerRequest() throws Exception {
+        try (Server s = new Server()) {
+            s.http.createContext("/exec", ex -> {
+                s.log.add(String.valueOf(ex.getRequestHeaders().getFirst("Authorization")));
+                reply(ex, 200, "application/json", "{}");
+            });
+            s.http.start();
+            AtomicInteger issued = new AtomicInteger();
+            HttpTransport t = HttpTransport.builder(s.base() + "/exec")
+                    .accessToken(() -> issued.incrementAndGet() == 3 ? " " : "t" + issued.get()).build();
+            t.send("{}");
+            t.send("{}");
+            t.send("{}");
+            assertEquals(List.of("Bearer t1", "Bearer t2", "null"), s.log);   // a blank token sends no header
+            assertEquals(3, issued.get());
+        }
+    }
+
+    @Test
+    void userAgentSent() throws Exception {
+        try (Server s = new Server()) {
+            s.http.createContext("/exec", ex -> {
+                s.log.add(ex.getRequestHeaders().getFirst("User-Agent"));
+                reply(ex, 200, "application/json", "{}");
+            });
+            s.http.start();
+            HttpTransport.builder(s.base() + "/exec").build().send("{}");
+            HttpTransport.builder(s.base() + "/exec").userAgent("my-app/2.0").build().send("{}");
+            assertEquals(List.of("gridbase-sdk/0.1", "my-app/2.0"), s.log);
         }
     }
 }

@@ -8,8 +8,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static io.github.prasunmondal.gridbase.FakeTransport.json;
+import static io.github.prasunmondal.gridbase.query.Filters.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RepositoryTest {
@@ -145,5 +148,70 @@ class RepositoryTest {
         List<String> names = new java.util.ArrayList<>();
         node.fieldNames().forEachRemaining(names::add);
         return names;
+    }
+
+    public static class TwoKeys {
+        @SheetKey
+        public String a;
+        @SheetKey
+        public String b;
+    }
+
+    public static class NoKey {
+        public String name;
+    }
+
+    public record Sku(@SheetKey @JsonProperty("sku_id") String id, String title) {
+    }
+
+    @Test
+    void entityMetadataErrors() {
+        FakeTransport t = FakeTransport.replying("\"rowCount\":1,\"rows\":[{\"sku_id\":\"S1\",\"title\":\"Tea\"}]");
+        GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
+
+        IllegalArgumentException twoKeys = assertThrows(IllegalArgumentException.class, () -> db.repository(TwoKeys.class));
+        assertTrue(twoKeys.getMessage().contains("more than one @SheetKey"));
+
+        Repository<NoKey> noKey = db.repository(NoKey.class);
+        assertThrows(IllegalStateException.class, () -> noKey.findById("1"));
+        assertThrows(IllegalStateException.class, () -> noKey.existsById("1"));
+        assertThrows(IllegalStateException.class, () -> noKey.upsert(new NoKey()));
+        assertThrows(IllegalStateException.class, () -> noKey.deleteById("1"));
+        assertEquals(0, t.requests.size());
+        noKey.findAll();                                    // keyless entities can still be read
+        assertEquals("NoKey", t.lastOperation().path("worksheet").asText());
+
+        Repository<Sku> skus = db.repository(Sku.class);
+        assertEquals("Tea", skus.upsert(new Sku("S1", "Tea")).title());
+        var op = t.lastOperation();
+        assertEquals("sku_id", op.path("where").get(0).path("column").asText());
+        assertEquals(List.of("sku_id", "title"), fieldNames(op.path("values")));
+        assertThrows(IllegalArgumentException.class, () -> skus.upsert(new Sku(null, "x")));
+        assertThrows(IllegalArgumentException.class, () -> skus.findById(" "));
+        assertThrows(IllegalArgumentException.class, () -> skus.deleteById(null));
+    }
+
+    @Test
+    void repositoryCountsAndOptionals() {
+        FakeTransport none = FakeTransport.replying("\"rowCount\":0,\"rows\":[]");
+        Repository<Customer> empty = GridBase.builder().transport(none).defaultSpreadsheetId("S").build()
+                .repository(Customer.class);
+        assertTrue(empty.findFirstWhere(eq("name", "Nobody")).isEmpty());
+        assertEquals(1, none.lastOperation().path("limit").asInt());
+        assertFalse(empty.existsById("C9"));
+        assertEquals(json("[\"customer_id\"]"), none.lastOperation().path("select"));
+        assertTrue(empty.findById("C9").isEmpty());
+        assertEquals(0, empty.deleteById("C9"));
+
+        FakeTransport two = FakeTransport.replying("\"rowCount\":2,\"rows\":["
+                + "{\"customer_id\":\"C1\",\"name\":\"Asha\",\"creditLimit\":5},{\"customer_id\":\"C1\",\"name\":\"Dup\"}]");
+        Repository<Customer> repo = GridBase.builder().transport(two).defaultSpreadsheetId("S").build()
+                .repository(Customer.class);
+        assertEquals("Asha", repo.findFirstWhere(eq("name", "Asha")).orElseThrow().name);
+        assertTrue(repo.existsById("C1"));
+        assertEquals(2, repo.deleteById("C1"));
+        assertEquals(2, repo.delete(new Customer("C1", "Asha", 5)));
+        assertEquals("C1", two.lastOperation().path("where").get(0).path("value").asText());
+        assertEquals(2, repo.findWhere(eq("customer_id", "C1")).size());
     }
 }

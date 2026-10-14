@@ -1,18 +1,33 @@
 package io.github.prasunmondal.gridbase;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.prasunmondal.gridbase.exception.ServerException;
 import io.github.prasunmondal.gridbase.exception.TransportException;
+import io.github.prasunmondal.gridbase.internal.ResponseParser;
+import io.github.prasunmondal.gridbase.result.AddColumnsResult;
+import io.github.prasunmondal.gridbase.result.ClearResult;
+import io.github.prasunmondal.gridbase.result.ColumnsResult;
+import io.github.prasunmondal.gridbase.result.ExecutionResponse;
+import io.github.prasunmondal.gridbase.result.LastUpdatedResult;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
+import io.github.prasunmondal.gridbase.result.WorksheetCreated;
+import io.github.prasunmondal.gridbase.spec.Operation;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.github.prasunmondal.gridbase.query.Filters.eq;
@@ -183,5 +198,143 @@ class ResponseHandlingTest {
     void missingResultIsDetected() {
         FakeTransport t = new FakeTransport(req -> "{\"success\":true,\"results\":[]}");
         assertThrows(TransportException.class, () -> client(t).worksheet("Orders").select().fetch());
+    }
+
+    // ------------------------------------------------------------------ parser and error classification
+
+    private static final ResponseParser PARSER = new ResponseParser(new ObjectMapper(), ZoneOffset.UTC);
+
+    @Test
+    void sliceRenumbersAndRejectsOutOfRange() {
+        String combined = "{\"success\":true,\"requestId\":\"R\",\"executionTime\":7,\"debug\":[\"d\"],\"results\":["
+                + "{\"operationId\":\"op-1\",\"rowCount\":1,\"rows\":[{\"n\":1}]},"
+                + "{\"operationId\":\"op-2\",\"rowCount\":1,\"rows\":[{\"n\":2}]},"
+                + "{\"operationId\":\"op-3\",\"rowCount\":1,\"rows\":[{\"n\":3}]}]}";
+
+        JsonNode slice = FakeTransport.json(PARSER.slice(combined, 1, 2));
+        assertEquals("R", slice.path("requestId").asText());
+        assertEquals(7, slice.path("executionTime").asInt());
+        assertEquals(FakeTransport.json("[\"d\"]"), slice.path("debug"));
+        assertEquals(2, slice.path("results").size());
+        assertEquals("op-1", slice.path("results").get(0).path("operationId").asText());
+        assertEquals(2, slice.path("results").get(0).path("rows").get(0).path("n").asInt());
+        assertEquals("op-2", slice.path("results").get(1).path("operationId").asText());
+        assertEquals(3, slice.path("results").get(1).path("rows").get(0).path("n").asInt());
+
+        assertThrows(TransportException.class, () -> PARSER.slice(combined, 2, 2));
+        assertThrows(TransportException.class, () -> PARSER.slice("not json", 0, 1));
+    }
+
+    @Test
+    void everyResultTypeParses() {
+        GridBase db = client(FakeTransport.replying());
+        Worksheet t = db.worksheet("T");
+        List<Operation> ops = List.of(t.select().toOperation(), t.insert(Map.of("a", 1)).toOperation(),
+                t.create().toOperation(), t.columns().toOperation(), t.addColumns("x").toOperation(),
+                t.clear().toOperation(), t.lastUpdated().toOperation());
+        String body = "{\"success\":true,\"requestId\":\"R\",\"results\":["
+                + "{\"operationId\":\"op-1\",\"rows\":[{\"a\":1},{\"a\":2}]},"
+                + "{\"operationId\":\"op-2\",\"rowCount\":1,\"rows\":[{\"a\":1}]},"
+                + "{\"operationId\":\"op-3\",\"sheetId\":9},"
+                + "{\"operationId\":\"op-4\",\"worksheet\":\"T\",\"columns\":[\"a\",null]},"
+                + "{\"operationId\":\"op-5\",\"columns\":[\"x\"],\"skippedColumns\":[],\"startColumn\":2,\"count\":1},"
+                + "{\"operationId\":\"op-6\",\"rowsCleared\":2,\"columnsCleared\":1},"
+                + "{\"operationId\":\"op-7\",\"spreadsheetId\":\"S\",\"lastUpdated\":1760000000000}]}";
+
+        ExecutionResponse response = PARSER.parse(body, ops);
+
+        assertEquals("R", response.requestId());
+        assertEquals(2, ((RowsResult) response.results().get(0)).count());   // rowCount defaults to rows
+        assertEquals(1, ((RowsResult) response.results().get(1)).count());
+        WorksheetCreated created = (WorksheetCreated) response.results().get(2);
+        assertEquals("T", created.worksheet());                              // defaults to the operation's
+        assertEquals(9L, created.sheetId());
+        assertEquals(List.of("a", ""), ((ColumnsResult) response.results().get(3)).columns());
+        assertEquals(2, ((AddColumnsResult) response.results().get(4)).startColumn());
+        assertEquals(2, ((ClearResult) response.results().get(5)).rowsCleared());
+        assertEquals(Instant.ofEpochMilli(1760000000000L), ((LastUpdatedResult) response.results().get(6)).lastUpdated());
+
+        String noTime = "{\"success\":true,\"results\":[{\"operationId\":\"op-1\",\"spreadsheetId\":\"S\"}]}";
+        assertThrows(IllegalStateException.class, () -> PARSER.parse(noTime, List.of(t.lastUpdated().toOperation())));
+    }
+
+    @Test
+    void transientMarkersAreRetryableDailyQuotaIsNot() {
+        for (String message : List.of(
+                "Service invoked too many times in a short time: exec.",
+                "Lock timeout: another process was holding the lock for too long.",
+                "Exceeded maximum execution time: timed out",
+                "Service unavailable: Spreadsheets",
+                "Please try again later.",
+                "Rate Limit Exceeded",
+                "LOCK TIMEOUT")) {
+            assertTrue(new ServerException(message, "Error", null, null).isRetryable(), message);
+        }
+        assertFalse(new ServerException("Service invoked too many times for one day: urlfetch.", "Error", null, null)
+                .isRetryable());
+        assertFalse(new ServerException("Unknown column: x", "Error", null, null).isRetryable());
+        ServerException noMessage = new ServerException(null, null, null, null);
+        assertFalse(noMessage.isRetryable());
+        assertTrue(noMessage.getServerStackTrace().isEmpty());
+        assertEquals("gridbase engine error: null", noMessage.getMessage());
+    }
+
+    @Test
+    void nonObjectJsonReplyIsATransportError() {
+        for (String reply : List.of("[]", "42", "\"text\"")) {
+            TransportException e = assertThrows(TransportException.class,
+                    () -> client(new FakeTransport(req -> reply)).worksheet("T").select().fetch());
+            assertTrue(e.getMessage().contains("not a JSON object"), e.getMessage());
+            assertFalse(e.isRetryable());
+        }
+    }
+
+    public enum Status { OPEN, CLOSED }
+
+    public static class Typed {
+        public Instant at;
+        public OffsetDateTime offset;
+        public ZonedDateTime zoned;
+        public LocalDateTime local;
+        public LocalDateTime localFromMillis;
+        public LocalDate day;
+        public Status status;
+        public BigDecimal amount;
+        public Boolean flag;
+        public Integer count;
+        public Long big;
+        public Double ratio;
+    }
+
+    @Test
+    void javaTimeAndNumberMapping() {
+        // 2026-09-29T18:30:00Z is 30 Sep 2026 00:00 in Asia/Kolkata.
+        Instant midnightIst = Instant.parse("2026-09-29T18:30:00Z");
+        String cell = "\"2026-09-29T18:30:00.000Z\"";
+        FakeTransport t = FakeTransport.replying("\"rowCount\":1,\"rows\":[{"
+                + "\"at\":" + cell + ",\"offset\":" + cell + ",\"zoned\":" + cell + ",\"local\":" + cell
+                + ",\"localFromMillis\":" + midnightIst.toEpochMilli() + ",\"day\":\"2026-09-30\""
+                + ",\"status\":\"OPEN\",\"amount\":\"12.50\",\"flag\":\"TRUE\",\"count\":\"42\""
+                + ",\"big\":1760000000000,\"ratio\":0.25}]");
+        Typed typed = client(t).worksheet("T").select().fetch(Typed.class).get(0);
+
+        assertEquals(midnightIst, typed.at);
+        assertEquals(midnightIst, typed.offset.toInstant());
+        assertEquals(midnightIst, typed.zoned.toInstant());
+        assertEquals(LocalDateTime.of(2026, 9, 30, 0, 0), typed.local);
+        assertEquals(LocalDateTime.of(2026, 9, 30, 0, 0), typed.localFromMillis);
+        assertEquals(LocalDate.of(2026, 9, 30), typed.day);
+        assertEquals(Status.OPEN, typed.status);
+        assertEquals(new BigDecimal("12.50"), typed.amount);
+        assertTrue(typed.flag);
+        assertEquals(42, typed.count);
+        assertEquals(1760000000000L, typed.big);
+        assertEquals(0.25, typed.ratio);
+
+        Row row = client(t).worksheet("T").select().fetch().get(0);
+        assertEquals(midnightIst, row.getInstant("at"));
+        assertEquals(LocalDateTime.of(2026, 9, 30, 0, 0), row.getLocalDateTime("local"));
+        assertEquals(42, row.getInteger("count"));
+        assertEquals(new BigDecimal("12.50"), row.getBigDecimal("amount"));
     }
 }

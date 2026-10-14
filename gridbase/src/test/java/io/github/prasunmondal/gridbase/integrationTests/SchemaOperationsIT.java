@@ -1,11 +1,13 @@
 package io.github.prasunmondal.gridbase.integrationTests;
 
+import io.github.prasunmondal.gridbase.Batch;
 import io.github.prasunmondal.gridbase.GridBase;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.exception.ServerException;
 import io.github.prasunmondal.gridbase.result.AddColumnsResult;
 import io.github.prasunmondal.gridbase.result.ClearResult;
 import io.github.prasunmondal.gridbase.result.WorksheetCreated;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,7 @@ import java.util.Map;
 
 import static io.github.prasunmondal.gridbase.query.Filters.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -194,5 +197,64 @@ class SchemaOperationsIT {
                 Duration.between(before, after).toMillis() + " ms");
 
         assertTrue(after.isAfter(before), "expected " + after + " after " + before);
+    }
+
+    @Test
+    @DisplayName("columns added in a batch can be written later in the same batch when nothing read the tab first")
+    void addColumnsThenInsertIntoItInOneBatch() {
+        Worksheet ws = db.worksheet(newTabName());
+        ws.create().execute();
+
+        Batch batch = db.batch();
+        batch.add(ws.addColumns("Id", "Label"));
+        batch.add(ws.insert(Map.of("Id", "1", "Label", "first")));
+        batch.execute();
+
+        assertEquals(List.of("Id", "Label"), ws.columns().fetch());
+        assertEquals("first", ws.select().where(eq("Id", 1)).fetchFirst().orElseThrow().getString("Label"));
+    }
+
+    /** Known limitation: the engine reads a tab's header once per request, so a column added after that is unknown. */
+    @Test
+    @DisplayName("a column added after the tab was read in the same batch is not yet known to later operations")
+    void selectThenAddColumnsThenInsertFails() {
+        Worksheet ws = db.worksheet(newTabName());
+        ws.create().execute();
+        ws.addColumns("Id").execute();
+
+        Batch batch = db.batch();
+        batch.add(ws.select());
+        batch.add(ws.addColumns("Label"));
+        batch.add(ws.insert(Map.of("Id", "1", "Label", "first")));
+        ServerException e = assertThrows(ServerException.class, batch::execute);
+
+        assertTrue(e.getServerMessage().toLowerCase().contains("label"), e.getServerMessage());
+        assertEquals(List.of("Id", "Label"), ws.columns().fetch());   // the schema change itself was applied
+        assertEquals(0, ws.select().execute().count());
+    }
+
+    /** Runs only against a deployment without the Advanced Drive service, e.g. the emulator with HS_DRIVE=off. */
+    @Test
+    @DisplayName("without Drive, a request with GET_LAST_UPDATED fails with a clear message; other requests still work")
+    void lastUpdatedWithoutDriveFailsOnlyThatOperation() {
+        Worksheet employees = TestData.employeesSheet();
+        ServerException alone;
+        try {
+            employees.lastUpdated().fetch();
+            Assumptions.abort("this deployment has the Advanced Drive service");
+            return;
+        } catch (ServerException e) {
+            alone = e;
+        }
+        assertTrue(alone.getServerMessage().contains("Advanced Drive"), alone.getServerMessage());
+
+        Batch batch = db.batch();
+        batch.add(employees.select().where(eq("EmployeeId", "E001")));
+        batch.add(employees.lastUpdated());
+        ServerException inBatch = assertThrows(ServerException.class, batch::execute);
+        assertTrue(inBatch.getServerMessage().contains("Advanced Drive"), inBatch.getServerMessage());
+        assertFalse(inBatch.isRetryable());
+
+        assertEquals(1, employees.select().where(eq("EmployeeId", "E001")).execute().count());
     }
 }

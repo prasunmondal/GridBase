@@ -7,6 +7,7 @@ import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
@@ -208,5 +209,20 @@ class UpdateIT {
     void updateWithoutWhereRefused() {
         assertThrows(IllegalStateException.class, () -> employees.update().set("City", "X").execute());
         assertThrows(IllegalStateException.class, () -> employees.update().where(eq("EmployeeId", "E001")).execute());
+    }
+
+    /** Needs a live deployment: the emulator does not evaluate formulas. */
+    @Test
+    @Tag("live")
+    @DisplayName("an update keeps formulas in the columns it does not touch")
+    void updateKeepsFormulasInOtherColumns() {
+        Map<String, Object> row = new java.util.LinkedHashMap<>(TestData.newEmployee("E011", "Before Rename"));
+        row.put("Notes", "=INDIRECT(\"B\"&ROW())");                 // echoes the Name column of its own row
+        employees.insert(row).execute();
+        assertEquals("Before Rename", employee("E011").getString("Notes"));
+
+        employees.update().set("Name", "After Rename").where(eq("EmployeeId", "E011")).execute();
+
+        assertEquals("After Rename", employee("E011").getString("Notes"));
     }
 }

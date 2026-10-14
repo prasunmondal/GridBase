@@ -51,6 +51,7 @@ final class FakeSheetsEngine implements Transport {
     private final List<JsonNode> requests = Collections.synchronizedList(new ArrayList<>());
     private final Set<String> failingWorksheets = ConcurrentHashMap.newKeySet();
     private volatile boolean offline;
+    private volatile String nextFailure;
 
     // ------------------------------------------------------------------ setup / external edits
 
@@ -103,6 +104,11 @@ final class FakeSheetsEngine implements Transport {
         failingWorksheets.clear();
     }
 
+    /** The next request gets {@code success:false} with this message (nothing is written), e.g. "Lock timeout". */
+    void failNextWith(String message) {
+        nextFailure = message;
+    }
+
     // ------------------------------------------------------------------ inspection
 
     /** Number of HTTP calls the SDK made (including failed ones). */
@@ -138,6 +144,11 @@ final class FakeSheetsEngine implements Transport {
         requests.add(request);
         if (offline) {
             throw new TransportException("connection refused (fake engine offline)", 0, null, true);
+        }
+        String failure = nextFailure;
+        if (failure != null) {
+            nextFailure = null;
+            return error(failure);
         }
         JsonNode operations = request.path("operations");
         for (JsonNode op : operations) {

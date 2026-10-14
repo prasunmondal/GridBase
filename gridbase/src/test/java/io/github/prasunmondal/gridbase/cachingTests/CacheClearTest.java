@@ -7,6 +7,7 @@ import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.cache.CacheBackend;
 import io.github.prasunmondal.gridbase.cache.InMemoryResponseCache;
 import io.github.prasunmondal.gridbase.cache.ResponseCache;
+import io.github.prasunmondal.gridbase.exception.GridBaseException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,9 +18,11 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -161,6 +164,55 @@ class CacheClearTest extends CachingTestBase {
         GridBase.deleteAllCache();
         nameOf(p, "P1");
         assertCalls(2);
+    }
+
+    @Test
+    @DisplayName("GridBase.deleteAllCache clears every other store when one throws, then throws the first failure")
+    void deleteAllCacheClearsOtherStoresWhenOneThrows() {
+        FailingStore one = new FailingStore("one");
+        FailingStore two = new FailingStore("two");
+        SheetProperties file = cached();
+        SheetProperties memory = cached(b -> b.cacheBackend(CacheBackend.MEMORY).cacheFile(dir.resolve("memory")));
+        cached(b -> b.cacheStore(one)).client();
+        cached(b -> b.cacheStore(two)).client();
+        nameOf(file, "P1");
+        nameOf(memory, "P1");
+        renameDirectly("P1", "Green Tea");
+        try {
+            GridBaseException e = assertThrows(GridBaseException.class, GridBase::deleteAllCache);
+            assertEquals(1, e.getSuppressed().length);
+            assertEquals(Set.of("store one failed", "store two failed"),
+                    Set.of(e.getMessage(), e.getSuppressed()[0].getMessage()));
+            assertEquals("Green Tea", nameOf(file, "P1"));
+            assertEquals("Green Tea", nameOf(memory, "P1"));
+        } finally {
+            one.failing = false;
+            two.failing = false;
+        }
+    }
+
+    /** A custom store whose {@code clear()} fails until switched off. */
+    private static final class FailingStore implements ResponseCache {
+        private final String name;
+        volatile boolean failing = true;
+
+        FailingStore(String name) {
+            this.name = name;
+        }
+
+        @Override public Optional<Entry> get(String key) { return Optional.empty(); }
+        @Override public void put(String key, String reply, Instant cachedAt, Instant expiresAt,
+                                  Collection<SheetRef> sheets) { }
+        @Override public int invalidate(String spreadsheetId, String worksheet) { return 0; }
+        @Override public int purgeExpired(Instant now) { return 0; }
+        @Override public void close() { }
+
+        @Override
+        public void clear() {
+            if (failing) {
+                throw new GridBaseException("store " + name + " failed");
+            }
+        }
     }
 
     /** A store the SDK knows nothing about, as an app would plug in (e.g. Room). */

@@ -170,4 +170,19 @@ class DeleteIT {
         List<Row> sheetOrder = employees.select("EmployeeId").fetch();
         assertEquals(List.of("E001", "E002", "E003", "E004", "E005", "E006", "E008", "E010"), ids(sheetOrder));
     }
+
+    @Test
+    @DisplayName("adjacent runs and scattered single rows deleted in one request; the rest keep their order and data")
+    void mixedAdjacentAndScatteredDeletesKeepOrder() {
+        Batch batch = ItConfig.db().batch();
+        batch.add(employees.delete().where(in("EmployeeId", "E002", "E003")));
+        batch.add(employees.delete().where(eq("EmployeeId", "E005")));
+        batch.add(employees.delete().where(in("EmployeeId", "E007", "E008", "E010")));
+        batch.execute();
+
+        assertEquals(List.of("E001", "E004", "E006", "E009"), ids(employees.select().fetch()));
+        assertEquals("Sneha Kapoor", employee("E004").getString("Name"));
+        assertEquals("Kolkata", employee("E006").getString("City"));
+        assertEquals("On sabbatical", employee("E009").getString("Notes"));
+    }
 }

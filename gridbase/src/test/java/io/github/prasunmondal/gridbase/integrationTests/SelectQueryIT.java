@@ -436,4 +436,17 @@ class SelectQueryIT {
         List<Row> b = employees.select().where(eq("City", "Mumbai")).orderBy("EmployeeId").fetch();
         assertEquals(a, b);
     }
+
+    @Test
+    @DisplayName("limit without orderBy returns the first matches in sheet order; offset skips matches, not rows")
+    void limitWithoutOrderReturnsFirstMatchesInSheetOrder() {
+        // Engineering, in sheet order: E001, E002, E003, E008
+        assertEquals(List.of("E001", "E002"),
+                ids(employees.select().where(eq("Department", "Engineering")).limit(2).fetch()));
+        assertEquals(List.of("E002", "E003"),
+                ids(employees.select().where(eq("Department", "Engineering")).offset(1).limit(2).fetch()));
+        assertEquals(List.of("E008"),
+                ids(employees.select().where(eq("Department", "Engineering")).offset(3).limit(5).fetch()));
+        assertEquals(List.of("E001"), ids(employees.select().limit(1).fetch()));
+    }
 }

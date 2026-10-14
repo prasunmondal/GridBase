@@ -35,15 +35,21 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
   behind on every run, because the engine cannot delete worksheets.
 - **Caching tests never sleep.** They advance a `MutableClock` passed through
   `SheetProperties.clock(...)`. `FakeSheetsEngine` holds real rows and supports `editDirectly`,
-  `goOffline` and `failRequestsTouching`, so tests can check data freshness and not only call counts.
+  `goOffline`, `failRequestsTouching` and `failNextWith(message)` (e.g. a retryable "Lock timeout"), so
+  tests can check data freshness and not only call counts. Queue and batch tests that need real rows
+  live there too (`QueueConsistencyTest`).
   Under `-Dhs.cacheBackend=MEMORY`, 3 file-based tests are expected to fail.
 - Wire-contract changes update `RequestContractTest`. Engine bug fixes get a regression IT, listed in
   the README "Engine issues" table.
 - Against an engine deployed before the fixes, these ITs are expected to fail: `SelectQueryIT`
   (IN/BETWEEN, raw numeric EQUALS), `DeleteIT` (deletes within a batch),
   `InsertIT.concurrentInsertsAllLand` and `SchemaOperationsIT.insertPastGridGrowsWorksheet`.
+- ITs tagged `@Tag("live")` (`ConcurrencyIT`, `UpdateIT.updateKeepsFormulasInOtherColumns`) need a live
+  deployment: the emulator is serial and does not evaluate formulas. `SchemaOperationsIT.lastUpdatedWithoutDrive…`
+  aborts unless the engine lacks Drive (`HS_DRIVE=off`).
 - `integrationTests/Employee.java` is the reference entity (its own `SheetProperties`, hooks, cache
   and queue).
 
 ## Related
 - `cache.md`, `engine.md`, `android.md`
+- `todo/tests.md`: the test plan these suites were written from (sections A–J)
