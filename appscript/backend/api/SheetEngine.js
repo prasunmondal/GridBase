@@ -40,6 +40,13 @@ class SheetEngine {
             //
             if (this.writes(request)) {
 
+                //
+                // openById is slow and reads nothing the lock
+                // protects, so it happens before the wait: the lock
+                // is held only while sheet contents are read and written.
+                //
+                this.openSpreadsheets(context);
+
                 const scriptLock = LockService.getScriptLock();
 
                 scriptLock.waitLock(this.config.lockTimeoutMillis);
@@ -57,6 +64,23 @@ class SheetEngine {
                 new ExecutionService();
 
             service.execute(context);
+
+            //
+            // Apps Script buffers sheet writes and would send them when
+            // the script ends, after the lock is gone: the next writer
+            // could then read the old last row and overwrite these rows.
+            // Flushing here also reports a failed write as a failure.
+            // The response is built after the lock is released.
+            //
+            if (lock) {
+
+                SpreadsheetApp.flush();
+
+                lock.releaseLock();
+
+                lock = null;
+
+            }
 
             context.response.executionTime =
                 context.statistics.execution.totalTime;
@@ -82,9 +106,40 @@ class SheetEngine {
 
         } finally {
 
+            //
+            // Failed request: send what was already written (schema
+            // operations) before another writer can start.
+            //
             if (lock) {
+
+                try {
+                    SpreadsheetApp.flush();
+                } catch (ignored) {
+                    // The request already failed; its error is reported.
+                }
+
                 lock.releaseLock();
+
             }
+
+        }
+
+    }
+
+    openSpreadsheets(context) {
+
+        for (const operation of context.request.getOperations()) {
+
+            //
+            // GET_LAST_UPDATED goes through Drive only.
+            //
+            if (operation.type === OperationType.GET_LAST_UPDATED) {
+                continue;
+            }
+
+            context.resources.spreadsheets.get(
+                operation.getSpreadsheetId()
+            );
 
         }
 

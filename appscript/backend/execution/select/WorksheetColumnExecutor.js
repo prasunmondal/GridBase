@@ -1,9 +1,11 @@
 class WorksheetColumnExecutor {
 
-    getColumns(operation) {
+    getColumns(resources,
+               operation) {
 
         const worksheet =
             this.getWorksheet(
+                resources,
                 operation
             );
 
@@ -27,10 +29,12 @@ class WorksheetColumnExecutor {
 
     }
 
-    addColumns(operation) {
+    addColumns(resources,
+               operation) {
 
         const worksheet =
             this.getWorksheet(
+                resources,
                 operation
             );
 
@@ -48,6 +52,7 @@ class WorksheetColumnExecutor {
 
         const existingColumns =
             this.getColumns(
+                resources,
                 operation
             );
 
@@ -188,28 +193,13 @@ class WorksheetColumnExecutor {
 
     }
 
-    getWorksheet(operation) {
+    getWorksheet(resources,
+                 operation) {
 
-        const spreadsheet =
-            SpreadsheetApp.openById(
-                operation.getSpreadsheetId()
-            );
-
-        const worksheet =
-            spreadsheet.getSheetByName(
-                operation.getWorksheet()
-            );
-
-        if (!worksheet) {
-
-            throw new Error(
-                "Worksheet not found: " +
-                operation.getWorksheet()
-            );
-
-        }
-
-        return worksheet;
+        return resources.worksheets.get(
+            operation.getSpreadsheetId(),
+            operation.getWorksheet()
+        );
 
     }
 

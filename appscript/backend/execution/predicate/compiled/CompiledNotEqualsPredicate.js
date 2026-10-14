@@ -6,11 +6,13 @@ class CompiledNotEqualsPredicate extends CompiledPredicate {
 
         this.expectedValue = expectedValue;
 
+        this.expectedText = String(expectedValue);
+
     }
 
     matches(row) {
 
-        return String(row.values[this.columnIndex]) !== String(this.expectedValue);
+        return String(row.values[this.columnIndex]) !== this.expectedText;
 
     }
 

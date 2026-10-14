@@ -24,6 +24,11 @@ class ExecutionService {
 
     execute(context) {
 
+        context.scannedWorksheets =
+            this.scannedWorksheets(
+                context.request.getOperations()
+            );
+
         for (
             const operation
             of context.request.getOperations()
@@ -37,6 +42,46 @@ class ExecutionService {
         }
 
         context.provider.commitAll();
+
+    }
+
+    //
+    // Worksheets whose rows some operation of the request reads.
+    // INSERT needs only the header row, so a worksheet that is
+    // only inserted into is never read in full; the others are
+    // read once, in full, when an operation first touches them.
+    //
+    scannedWorksheets(operations) {
+
+        const scanned = new Set();
+
+        for (const operation of operations) {
+
+            switch (operation.getType()) {
+
+                case OperationType.SELECT:
+                case OperationType.UPDATE:
+                case OperationType.DELETE:
+                case OperationType.UPSERT:
+                case OperationType.CLONE:
+
+                    scanned.add(
+                        this.worksheetKey(operation)
+                    );
+
+            }
+
+        }
+
+        return scanned;
+
+    }
+
+    worksheetKey(operation) {
+
+        return operation.getSpreadsheetId() +
+            ":" +
+            operation.getWorksheet();
 
     }
 
@@ -96,6 +141,7 @@ class ExecutionService {
 
         const result =
             this.clearWorksheetExecutor.execute(
+                context.resources,
                 operation
             );
 
@@ -171,6 +217,7 @@ class ExecutionService {
         const columns =
             this.worksheetColumnExecutor
                 .getColumns(
+                    context.resources,
                     operation
                 );
 
@@ -196,6 +243,7 @@ class ExecutionService {
         const result =
             this.worksheetColumnExecutor
                 .addColumns(
+                    context.resources,
                     operation
                 );
 
@@ -228,6 +276,7 @@ class ExecutionService {
 
         const result =
             this.createWorksheetExecutor.execute(
+                context.resources,
                 operation
             );
 
@@ -253,7 +302,10 @@ class ExecutionService {
             context.provider.getWorksheetData(
                 context,
                 operation.getSpreadsheetId(),
-                operation.getWorksheet()
+                operation.getWorksheet(),
+                context.scannedWorksheets.has(
+                    this.worksheetKey(operation)
+                )
             );
 
         const plan =

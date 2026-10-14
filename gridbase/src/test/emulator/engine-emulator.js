@@ -135,11 +135,24 @@ class FakeSheet {
   getRange(row, col, numRows, numCols) {
     return new FakeRange(this, row, col, numRows || 1, numCols || 1);
   }
+  // A1 to (last row, last column); A1 alone on an empty sheet, like Sheets.
+  getDataRange() {
+    return new FakeRange(this, 1, 1, Math.max(this.getLastRow(), 1), Math.max(this.getLastColumn(), 1));
+  }
   deleteRow(row) {
-    if (row < 1 || row > this.maxRows) throw new Error('Those rows are out of bounds.');
-    this.cells.splice(row - 1, 1);
-    this.maxRows--;
+    return this.deleteRows(row, 1);
+  }
+  deleteRows(row, howMany) {
+    if (row < 1 || howMany < 1 || row + howMany - 1 > this.maxRows) throw new Error('Those rows are out of bounds.');
+    this.cells.splice(row - 1, howMany);
+    this.maxRows -= howMany;
     this.spreadsheet.touch();
+    return this;
+  }
+  insertRowsAfter(afterPosition, howMany) {
+    if (afterPosition < 1 || afterPosition > this.maxRows || howMany < 1) throw new Error('Those rows are out of bounds.');
+    if (afterPosition < this.cells.length) this.cells.splice(afterPosition, 0, ...Array.from({ length: howMany }, () => []));
+    this.maxRows += howMany;
     return this;
   }
 }
@@ -173,7 +186,9 @@ global.SpreadsheetApp = {
       throw new Error('Unexpected error while getting the method or property openById on object SpreadsheetApp.');
     }
     return ss;
-  }
+  },
+  // Writes here apply at once, so there is never anything pending.
+  flush() {}
 };
 
 // Advanced Drive service (v3), only the metadata the engine reads. It is opt-in on real deployments;

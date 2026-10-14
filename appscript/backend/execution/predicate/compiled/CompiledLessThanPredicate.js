@@ -6,12 +6,14 @@ class CompiledLessThanPredicate extends CompiledPredicate {
 
         this.expectedValue = expectedValue;
 
+        this.expectedNumber = Number(expectedValue);
+
     }
 
     matches(row) {
 
         return Number(row.values[this.columnIndex]) <
-            Number(this.expectedValue);
+            this.expectedNumber;
 
     }
 

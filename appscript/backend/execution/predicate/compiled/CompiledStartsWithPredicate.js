@@ -6,10 +6,12 @@ class CompiledStartsWithPredicate extends CompiledPredicate {
 
         this.expectedValue = expectedValue;
 
+        this.expectedText = String(expectedValue);
+
     }
 
     matches(row) {
         return String(row.values[this.columnIndex])
-            .startsWith(String(this.expectedValue));
+            .startsWith(this.expectedText);
     }
 }

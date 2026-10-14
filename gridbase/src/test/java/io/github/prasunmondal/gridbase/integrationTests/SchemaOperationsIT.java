@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -25,10 +26,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * CREATE_WORKSHEET, GET_COLUMNS, ADD_COLUMNS, CLEAR_WORKSHEET, GET_LAST_UPDATED.
  *
- * <p>{@link #fullLifecycleOnNewWorksheet()} creates one new tab named {@code IT_Created_<timestamp>} per
- * run, because the engine has no operation to delete a worksheet. Delete old ones by hand.</p>
+ * <p>{@link #fullLifecycleOnNewWorksheet()} and {@link #insertPastGridGrowsWorksheet()} each create a new
+ * tab named {@code IT_Created_<timestamp>} per run, because the engine has no operation to delete a
+ * worksheet. Delete old ones by hand.</p>
  */
 class SchemaOperationsIT {
+
+    private static String newTabName() {
+        return "IT_Created_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
+    }
 
     private GridBase db;
 
@@ -41,7 +47,7 @@ class SchemaOperationsIT {
     @Test
     @DisplayName("create -> empty headers -> add columns -> insert -> select -> clear, on a brand-new tab")
     void fullLifecycleOnNewWorksheet() {
-        String name = "IT_Created_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
+        String name = newTabName();
         Worksheet ws = db.worksheet(name);
 
         WorksheetCreated created = ws.create().execute();
@@ -67,6 +73,24 @@ class SchemaOperationsIT {
         assertEquals(3, cleared.columnsCleared());
         assertEquals(0, ws.select().execute().rowCount());
         assertEquals(List.of("Sku", "Title", "Price"), ws.columns().fetch());
+    }
+
+    @Test
+    @DisplayName("an insert that runs past the sheet's last grid row grows the grid instead of failing")
+    void insertPastGridGrowsWorksheet() {
+        // A new tab has a 1000-row grid: the header plus 1000 rows needs one more.
+        Worksheet ws = db.worksheet(newTabName());
+        ws.create().execute();
+        ws.addColumns("N").execute();
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 1; i <= 1000; i++) {
+            rows.add(Map.of("N", i));
+        }
+        assertEquals(1000, ws.insertAll(rows).execute().count());
+
+        assertEquals(1000, ws.select().execute().rowCount());
+        assertEquals(1000L, ws.select().where(eq("N", "1000")).fetchFirst().orElseThrow().getLong("N").longValue());
     }
 
     @Test

@@ -1,25 +1,13 @@
 class ClearWorksheetExecutor {
 
-    execute(operation) {
-
-        const spreadsheet =
-            SpreadsheetApp.openById(
-                operation.getSpreadsheetId()
-            );
+    execute(resources,
+            operation) {
 
         const worksheet =
-            spreadsheet.getSheetByName(
+            resources.worksheets.get(
+                operation.getSpreadsheetId(),
                 operation.getWorksheet()
             );
-
-        if (!worksheet) {
-
-            throw new Error(
-                "Worksheet not found: " +
-                operation.getWorksheet()
-            );
-
-        }
 
         const lastRow =
             worksheet.getLastRow();

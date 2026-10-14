@@ -12,9 +12,14 @@ class GoogleSheetsProvider {
 
     }
 
+    /**
+     * @param {boolean} withRows false loads only the header row,
+     *        which is all INSERT needs.
+     */
     getWorksheetData(context,
                      spreadsheetId,
-                     worksheet) {
+                     worksheet,
+                     withRows) {
 
         const reference =
             this.resources.data.get(
@@ -26,20 +31,21 @@ class GoogleSheetsProvider {
 
             this.loader.load(
                 context,
-                reference
+                reference,
+                withRows
+            );
+
+        } else if (withRows &&
+            !reference.data.rowsLoaded) {
+
+            this.loader.loadRows(
+                context,
+                reference.data
             );
 
         }
 
         return reference.data;
-
-    }
-
-    commit(worksheetData) {
-
-        this.committer.commit(
-            worksheetData
-        );
 
     }
 

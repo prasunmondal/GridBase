@@ -26,7 +26,19 @@ class ExecutionExecutor {
         const predicates =
             compiledPlan.getPredicates();
 
-        for (const row of rows) {
+        const needed =
+            this.rowsNeeded(compiledPlan);
+
+        const matched =
+            result.getRows();
+
+        let examined = 0;
+
+        for (let r = 0;
+             r < rows.length && matched.length < needed;
+             r++) {
+
+            const row = rows[r];
 
             //
             // Rows deleted by an earlier operation in this request
@@ -36,7 +48,7 @@ class ExecutionExecutor {
                 continue;
             }
 
-            executionStats.rowsExamined++;
+            examined++;
 
             if (!this.matches(
                 context,
@@ -46,11 +58,13 @@ class ExecutionExecutor {
                 continue;
             }
 
-            executionStats.rowsMatched++;
-
-            result.addRow(row);
+            matched.push(row);
 
         }
+
+        executionStats.rowsExamined += examined;
+
+        executionStats.rowsMatched += matched.length;
 
         //
         // ORDER BY
@@ -69,6 +83,30 @@ class ExecutionExecutor {
         );
 
         return result;
+
+    }
+
+    //
+    // Without ORDER BY the answer is the first offset + limit
+    // matches in sheet order, so the scan can stop there.
+    // Same reading of offset / limit as ExecutionPaginator.
+    //
+    rowsNeeded(compiledPlan) {
+
+        const limit =
+            compiledPlan.getLimit();
+
+        const orderBy =
+            compiledPlan.getOrderBy();
+
+        if (limit < 0 ||
+            (orderBy && orderBy.length > 0)) {
+
+            return Infinity;
+
+        }
+
+        return Math.max(compiledPlan.getOffset(), 0) + limit;
 
     }
 

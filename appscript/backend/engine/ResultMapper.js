@@ -34,106 +34,85 @@ class ResultMapper {
             schema,
             projections) {
 
-        const mapped = [];
+        //
+        // Resolved once, not per row: the indexes and
+        // schemas of the columns to return.
+        //
+        const indexes = [];
 
-        for (let i = 0; i < rows.length; i++) {
+        const columns = [];
 
-            mapped.push(
+        if (!projections ||
+            projections.length === 0) {
 
-                this.mapRow(
-                    rows[i],
-                    schema,
-                    projections
-                )
+            //
+            // SELECT *
+            //
+            const all =
+                schema.getColumns();
 
-            );
+            for (let i = 0; i < all.length; i++) {
+
+                indexes.push(i);
+
+                columns.push(all[i]);
+
+            }
+
+        } else {
+
+            //
+            // SELECT col1,col2...
+            //
+            for (let i = 0; i < projections.length; i++) {
+
+                const column =
+                    schema.getColumns()[
+                        projections[i].columnIndex
+                        ];
+
+                if (!column) {
+
+                    throw new Error(
+                        "Invalid projection columnIndex: " +
+                        projections[i].columnIndex
+                    );
+
+                }
+
+                indexes.push(projections[i].columnIndex);
+
+                columns.push(column);
+
+            }
+
+        }
+
+        const mapped =
+            new Array(rows.length);
+
+        for (let r = 0; r < rows.length; r++) {
+
+            const values =
+                rows[r].values;
+
+            const object = {};
+
+            for (let c = 0; c < columns.length; c++) {
+
+                object[columns[c].name] =
+                    this.columnValueMapper.map(
+                        values[indexes[c]],
+                        columns[c]
+                    );
+
+            }
+
+            mapped[r] = object;
 
         }
 
         return mapped;
-
-    }
-
-    mapRow(row,
-           schema,
-           projections) {
-
-        //
-        // SELECT *
-        //
-        if (!projections ||
-            projections.length === 0) {
-
-            return this.mapAllColumns(
-                row,
-                schema
-            );
-
-        }
-
-        //
-        // SELECT col1,col2...
-        //
-        const object = {};
-
-        for (let i = 0; i < projections.length; i++) {
-
-            const projection =
-                projections[i];
-
-            // context.getDebug().add(
-            //     "Projection",
-            //     projection
-            // );
-
-            const column =
-                schema.getColumns()[
-                    projection.columnIndex
-                    ];
-
-            if (!column) {
-
-                throw new Error(
-                    "Invalid projection columnIndex: " +
-                    projection.columnIndex
-                );
-
-            }
-
-            object[column.name] =
-                this.columnValueMapper.map(
-                    row.get(projection.columnIndex),
-                    column
-                );
-
-        }
-
-        return object;
-
-    }
-
-    mapAllColumns(row,
-                  schema) {
-
-        const object = {};
-
-        const columns =
-            schema.getColumns();
-
-        for (let i = 0; i < columns.length; i++) {
-
-            const column =
-                columns[i];
-
-            object[column.name] =
-                this.columnValueMapper.map(
-                    row.get(i),
-                    column
-                );
-
-        }
-
-        return object;
 
     }
 

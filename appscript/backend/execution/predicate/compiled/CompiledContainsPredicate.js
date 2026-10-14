@@ -6,10 +6,12 @@ class CompiledContainsPredicate extends CompiledPredicate {
 
         this.expectedValue = expectedValue;
 
+        this.expectedText = String(expectedValue);
+
     }
 
     matches(row) {
         return String(row.values[this.columnIndex])
-            .includes(String(this.expectedValue));
+            .includes(this.expectedText);
     }
 }

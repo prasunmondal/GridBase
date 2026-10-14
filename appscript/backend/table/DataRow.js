@@ -8,6 +8,14 @@ class DataRow {
 
         this.state = RowState.CLEAN;
 
+        //
+        // Columns set() changed, as a span: the commit writes
+        // only these cells back, not the whole row.
+        //
+        this.firstChanged = -1;
+
+        this.lastChanged = -1;
+
     }
 
     get(index) {
@@ -22,6 +30,14 @@ class DataRow {
 
         if (this.state === RowState.CLEAN) {
             this.state = RowState.MODIFIED;
+        }
+
+        if (this.firstChanged < 0 || index < this.firstChanged) {
+            this.firstChanged = index;
+        }
+
+        if (index > this.lastChanged) {
+            this.lastChanged = index;
         }
 
     }

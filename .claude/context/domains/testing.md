@@ -31,7 +31,7 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
   its network calls as they happen (`NetworkLogger.defaults()`, stderr); turn off with
   `-Dhs.logNetwork=false` / `HS_LOG_NETWORK=false`. They touch only
   worksheets prefixed `IT_`. `TestData.resetAll()` reseeds `IT_Employees` / `IT_Departments` and
-  invalidates `Employee`'s cache. `SchemaOperationsIT` leaves an `IT_Created_<timestamp>` sheet
+  invalidates `Employee`'s cache. `SchemaOperationsIT` leaves two `IT_Created_<timestamp>` sheets
   behind on every run, because the engine cannot delete worksheets.
 - **Caching tests never sleep.** They advance a `MutableClock` passed through
   `SheetProperties.clock(...)`. `FakeSheetsEngine` holds real rows and supports `editDirectly`,
@@ -40,8 +40,8 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
 - Wire-contract changes update `RequestContractTest`. Engine bug fixes get a regression IT, listed in
   the README "Engine issues" table.
 - Against an engine deployed before the fixes, these ITs are expected to fail: `SelectQueryIT`
-  (IN/BETWEEN, raw numeric EQUALS), `DeleteIT` (deletes within a batch) and
-  `InsertIT.concurrentInsertsAllLand`.
+  (IN/BETWEEN, raw numeric EQUALS), `DeleteIT` (deletes within a batch),
+  `InsertIT.concurrentInsertsAllLand` and `SchemaOperationsIT.insertPastGridGrowsWorksheet`.
 - `integrationTests/Employee.java` is the reference entity (its own `SheetProperties`, hooks, cache
   and queue).
 

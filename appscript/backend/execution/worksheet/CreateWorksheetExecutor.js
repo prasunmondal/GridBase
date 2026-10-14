@@ -1,16 +1,14 @@
 class CreateWorksheetExecutor {
 
-    execute(operation) {
-
-        const spreadsheetId =
-            operation.getSpreadsheetId();
+    execute(resources,
+            operation) {
 
         const worksheetName =
             operation.getWorksheet();
 
         const spreadsheet =
-            SpreadsheetApp.openById(
-                spreadsheetId
+            resources.spreadsheets.get(
+                operation.getSpreadsheetId()
             );
 
         const existing =

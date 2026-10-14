@@ -16,9 +16,10 @@ class WorksheetLoader {
      *
      * @param {ExecutionContext} context
      * @param {WorksheetDataReference} reference
+     * @param {boolean} withRows false reads only the header row
      * @returns {WorksheetData}
      */
-    load(context, reference) {
+    load(context, reference, withRows) {
 
         if (reference.isLoaded()) {
             return reference.data;
@@ -34,10 +35,12 @@ class WorksheetLoader {
             );
 
             //
-            // Read worksheet
+            // Read worksheet: everything in one read, or the header row
             //
             const read = Stopwatch.measure(() => {
-                return this.valueReader.read(reference);
+                return withRows
+                    ? this.valueReader.read(reference)
+                    : this.valueReader.readHeaders(reference);
             });
 
             const rawWorksheet = read.result;
@@ -58,48 +61,18 @@ class WorksheetLoader {
 
                 }).elapsed;
 
-            //
-            // No data rows
-            //
-            if (!rawWorksheet.hasDataRows()) {
+            loaderStats.columnsRead =
+                worksheetData.getColumnCount();
 
-                worksheetData.loaded = true;
+            if (withRows) {
 
-                reference.data = worksheetData;
-
-                loaderStats.rowsRead = 0;
-                loaderStats.columnsRead =
-                    worksheetData.getSchema().getColumns().length;
-                loaderStats.cellsRead = 0;
-
-                return worksheetData;
+                this.buildRows(
+                    context,
+                    worksheetData,
+                    rawWorksheet.getRows()
+                );
 
             }
-
-            //
-            // Build Rows
-            //
-            loaderStats.rowBuildTime =
-                Stopwatch.measure(() => {
-
-                    this.rowBuilder.build(
-                        worksheetData,
-                        rawWorksheet
-                    );
-
-                }).elapsed;
-
-            //
-            // Build Indexes
-            //
-            loaderStats.indexBuildTime =
-                Stopwatch.measure(() => {
-
-                    this.indexBuilder.build(
-                        worksheetData
-                    );
-
-                }).elapsed;
 
             //
             // Finalize
@@ -108,20 +81,6 @@ class WorksheetLoader {
 
             reference.data = worksheetData;
 
-            loaderStats.rowsRead =
-                worksheetData.getRows().length;
-
-            context.getDebug().add("Rows Loaded", worksheetData.getRows().length);
-
-            loaderStats.columnsRead =
-                worksheetData.getSchema()
-                    .getColumns()
-                    .length;
-
-            loaderStats.cellsRead =
-                loaderStats.rowsRead *
-                loaderStats.columnsRead;
-
             return worksheetData;
 
         });
@@ -129,6 +88,66 @@ class WorksheetLoader {
         loaderStats.totalTime = total.elapsed;
 
         return total.result;
+
+    }
+
+    /**
+     * Reads the data rows of a worksheet loaded without them.
+     */
+    loadRows(context, worksheetData) {
+
+        const read = Stopwatch.measure(() => {
+            return this.valueReader.readRows(
+                worksheetData,
+                worksheetData.getColumnCount()
+            );
+        });
+
+        context.statistics.loader.readTime += read.elapsed;
+
+        this.buildRows(
+            context,
+            worksheetData,
+            read.result
+        );
+
+    }
+
+    buildRows(context, worksheetData, values) {
+
+        const loaderStats = context.statistics.loader;
+
+        //
+        // Build Rows
+        //
+        loaderStats.rowBuildTime =
+            Stopwatch.measure(() => {
+
+                worksheetData.addLoadedRows(
+                    this.rowBuilder.build(values)
+                );
+
+            }).elapsed;
+
+        //
+        // Build Indexes
+        //
+        loaderStats.indexBuildTime =
+            Stopwatch.measure(() => {
+
+                this.indexBuilder.build(
+                    worksheetData
+                );
+
+            }).elapsed;
+
+        loaderStats.rowsRead = values.length;
+
+        loaderStats.cellsRead =
+            loaderStats.rowsRead *
+            loaderStats.columnsRead;
+
+        context.getDebug().add("Rows Loaded", values.length);
 
     }
 

@@ -32,6 +32,7 @@ confirm their rationale once.
 | [012](ADR-012-optional-columns-dropped-by-engine.md) | `@OptionalColumn` values are dropped by the engine when the sheet lacks the column | Accepted |
 | [013](ADR-013-last-updated-from-drive.md) | Spreadsheet last-updated time comes from Drive metadata, never cached | Superseded by ADR-014 |
 | [014](ADR-014-drive-opt-in.md) | Drive access for `lastUpdated()` is opt-in per deployment; the shipped manifest needs only Sheets | Accepted |
+| [015](ADR-015-engine-short-lock-batched-io.md) | Engine holds the lock briefly, flushes before releasing it, and batches sheet I/O | Accepted |
 
 ## Template (`ADR-NNN-kebab-title.md`, keep it under about 60 lines)
 ```markdown

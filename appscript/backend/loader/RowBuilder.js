@@ -4,20 +4,24 @@ class RowBuilder {
         this.factory = new DataRowFactory();
     }
 
-    build(worksheetData, rawWorksheet) {
+    /**
+     * @param {Array[]} values data rows, the first one at sheet row 2
+     * @returns {DataRow[]}
+     */
+    build(values) {
 
-        let sheetRow = 2;
+        const rows = new Array(values.length);
 
-        for (const values of rawWorksheet.getRows()) {
-            const row = this.factory.create(
-                sheetRow,
-                values
+        for (let i = 0; i < values.length; i++) {
+
+            rows[i] = this.factory.create(
+                i + 2,
+                values[i]
             );
 
-            worksheetData.addRow(row);
-
-            sheetRow++;
         }
+
+        return rows;
 
     }
 

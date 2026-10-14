@@ -10,13 +10,14 @@ class WorksheetData {
 
         this.rows = [];
 
-        this.rowLookup = new Map();
-
         this.indexes = [];
 
         this.changeSet = new ChangeSet();
 
         this.loaded = false;
+
+        // false while only the header row has been read
+        this.rowsLoaded = false;
 
     }
 
@@ -24,7 +25,20 @@ class WorksheetData {
 
         this.rows.push(row);
 
-        this.rowLookup.set(row.sheetRow, row);
+    }
+
+    //
+    // Rows read from the sheet go before the rows this
+    // request added, which the sheet does not have yet.
+    //
+    addLoadedRows(rows) {
+
+        this.rows =
+            this.rows.length === 0
+                ? rows
+                : rows.concat(this.rows);
+
+        this.rowsLoaded = true;
 
     }
 

@@ -870,7 +870,10 @@ These are in the Apps Script engine (`appscript/`), not the SDK.
 | **EQUALS with a JSON number never matched** (`String(cell) === 5`). | `CompiledEqualsPredicate` compares against `String(expectedValue)`. The SDK still sends text, so it works with old deployments too. | `SelectQueryIT.rawNumericEquals` |
 | **`IN` / `BETWEEN` rejected on SELECT** (*Unsupported predicate*). | `RequestValidator.validatePredicate` accepts them and checks the column and values. | `SelectQueryIT.inOnSelect`, `betweenOnSelect` |
 | **Deleted rows stayed visible within a batch**, and deleting the same row twice also deleted the next row. | `ExecutionExecutor` skips rows already deleted in the request; `commitDeleted` deletes each sheet row once, bottom-up. | `DeleteIT.deletedRowInvisibleLaterInBatch`, `doubleDeleteInBatchKeepsNeighbour` |
-| **No locking** — concurrent requests appending at `getLastRow() + 1` overwrote each other. | `SheetEngine.handlePost` takes `LockService.getScriptLock()` for any request that writes (waits up to `EngineConfig.lockTimeoutMillis`, 30 s) and releases it in `finally`. Read-only requests don't wait. | `InsertIT.concurrentInsertsAllLand` |
+| **No locking** — concurrent requests appending at `getLastRow() + 1` overwrote each other. | `SheetEngine.handlePost` takes `LockService.getScriptLock()` for any request that writes (waits up to `EngineConfig.lockTimeoutMillis`, 30 s). Read-only requests don't wait. | `InsertIT.concurrentInsertsAllLand` |
+| **The lock was released before the writes reached the sheet.** Apps Script sends buffered writes when the script ends, so the next writer could still read the old last row and overwrite rows just appended. | `SpreadsheetApp.flush()` runs before `releaseLock()`, on failures too. The response is built after the lock is released. | `InsertIT.concurrentInsertsAllLand` (the race needs a live deployment) |
+| **An insert past the sheet's last grid row failed** (*The coordinates of the range are outside the dimensions of the sheet*), e.g. the 1000th row of a new tab. | `WorksheetCommitter` adds the missing rows (`insertRowsAfter`) before appending. | `SchemaOperationsIT.insertPastGridGrowsWorksheet` |
+| **UPDATE rewrote the whole row.** Cells in columns it did not change were written back as values, so formulas became static values and text such as `00042` became the number 42. | Only the span of changed columns is written. | — (needs a formula or plain-text cell, which the SDK cannot create) |
 
 Notes on the lock:
 
@@ -879,7 +882,19 @@ Notes on the lock:
 - If the wait times out, the engine answers `success:false` with *Lock timeout…*; the SDK treats it
   as retryable. Nothing ran, but writes are still only retried when you opt in with
   `retryingWrites(true)`.
-- Reads don't take the lock, so a read that overlaps a write's commit can see it half-applied.
+- Reads don't take the lock, so a read that overlaps a write's commit can see it half-applied. The
+  commit goes out as one flushed batch, so the window is short, but it is not zero.
+
+Performance on large sheets (engine behaviour; redeploy to get it):
+
+- An INSERT reads only the header row, so its cost does not grow with the sheet. SELECT, UPDATE,
+  DELETE, UPSERT and CLONE still read the whole worksheet once per request, in a single read.
+- Without `orderBy`, a `limit` stops the scan once enough rows have matched.
+- Adjacent updated rows are written in one call, and adjacent deleted rows are removed in one call.
+  Scattered rows still cost one Sheets call each, so a bulk update or delete is fastest when the
+  matching rows are contiguous.
+- The lock is held only while sheet contents are read and written, which helps write throughput when
+  several clients write at once.
 
 ### Open
 
