@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static io.github.prasunmondal.gridbase.FakeTransport.json;
@@ -98,17 +99,21 @@ class RequestContractTest {
     }
 
     @Test
-    void insertAlwaysUsesExplicitRowsForm() {
+    void insertSendsPlainValuesBareAndObjectsExplicitly() {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", "A1");
+        row.put("qty", 3);
+        row.put("ok", true);
+        row.put("tags", List.of("a", "b"));
         row.put("meta", Map.of("k", "v"));
         row.put("note", null);
         db.worksheet("T").insert(row).execute();
 
+        // Bare values are SET in every engine version; an object must be wrapped or it reads as a descriptor.
         assertEquals(json("{\"id\":\"op-1\",\"type\":\"INSERT\",\"spreadsheetId\":\"SHEET\",\"worksheet\":\"T\","
-                        + "\"rows\":[{\"id\":{\"value\":\"A1\",\"operation\":\"SET\"},"
+                        + "\"rows\":[{\"id\":\"A1\",\"qty\":3,\"ok\":true,\"tags\":[\"a\",\"b\"],"
                         + "\"meta\":{\"value\":{\"k\":\"v\"},\"operation\":\"SET\"},"
-                        + "\"note\":{\"value\":null,\"operation\":\"SET\"}}]}"),
+                        + "\"note\":null}]}"),
                 transport.lastOperation());
     }
 
@@ -118,7 +123,7 @@ class RequestContractTest {
                 .where(eq("id", 42)).execute();
         var op = transport.lastOperation();
         assertEquals("UPDATE", op.path("type").asText());
-        assertEquals(json("{\"status\":{\"value\":\"DONE\",\"operation\":\"SET\"},"
+        assertEquals(json("{\"status\":\"DONE\","
                 + "\"log\":{\"value\":\"|closed\",\"operation\":\"APPEND\"},"
                 + "\"tag\":{\"value\":\"#\",\"operation\":\"PREPEND\"}}"), op.path("values"));
         assertEquals("42", op.path("where").get(0).path("value").asText());
@@ -129,7 +134,7 @@ class RequestContractTest {
         db.worksheet("T").upsert().key("id", "C-1").set("name", "Asha").execute();
         var op = transport.lastOperation();
         assertEquals("C-1", op.path("where").get(0).path("value").asText());
-        assertEquals("C-1", op.path("values").path("id").path("value").asText());
+        assertEquals("C-1", op.path("values").path("id").asText());
     }
 
     @Test

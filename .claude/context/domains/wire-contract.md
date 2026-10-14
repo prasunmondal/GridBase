@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-13
+last_verified: 2026-10-14
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
@@ -20,6 +20,10 @@ back. It is the most compatibility-sensitive area, because consumers run engines
 - `internal.RequestSerializer` encodes the exact JSON that `appscript/backend/parser/RequestParser.js`
   reads. **`RequestContractTest` pins it: change the serializer, the parser and the test together.**
   `RequestValidator.js` checks predicates on the engine side.
+- `values` / `rows` cells: a SET of a non-object value is sent bare (`"Name": "Asha"`); APPEND,
+  PREPEND and object/map values use `{"value": v, "operation": "..."}`, because the engine reads any
+  object as an operation descriptor. Every engine since the first accepts bare values as SET
+  (`RequestParser.parseValues`), so this needs no redeploy. `FakeSheetsEngine` mirrors the same rule.
 - `optionalColumns` (from `@OptionalColumn` or `optionalColumns(...)`) is sent only when non-empty.
   Old engines ignore it (ADR-012).
 - `internal.ResponseParser`: success → `result.*`; `success:false` → `ServerException` (engine

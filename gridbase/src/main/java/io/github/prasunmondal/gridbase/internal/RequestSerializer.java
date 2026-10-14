@@ -135,14 +135,20 @@ public final class RequestSerializer {
     }
 
     /**
-     * Always uses the explicit {@code {"value": v, "operation": "SET"}} form: the engine treats any
-     * JSON object as an operation descriptor, so a bare object/map value would be misread.
+     * A {@code SET} of a non-object value is sent bare ({@code "col": v}), which every engine version reads
+     * as SET. Anything else uses the explicit {@code {"value": v, "operation": "..."}} form: the engine treats
+     * any JSON object as an operation descriptor, so a bare object/map value would be misread.
      */
     private ObjectNode assignments(List<Assignment> assignments) {
         ObjectNode node = mapper.createObjectNode();
         for (Assignment a : assignments) {
+            JsonNode value = toNode(a.value());
+            if (a.kind() == Assignment.Kind.SET && !value.isObject()) {
+                node.set(a.column(), value);
+                continue;
+            }
             ObjectNode entry = node.putObject(a.column());
-            entry.set("value", toNode(a.value()));
+            entry.set("value", value);
             entry.put("operation", a.kind().name());
         }
         return node;

@@ -380,9 +380,11 @@ final class FakeSheetsEngine implements Transport {
 
     private static void assign(ObjectNode row, JsonNode assignments) {
         assignments.fields().forEachRemaining(e -> {
-            JsonNode value = e.getValue().path("value");
+            // Like RequestParser.parseValues: a non-object value is a bare SET.
+            boolean bare = !e.getValue().isObject();
+            JsonNode value = bare ? e.getValue() : e.getValue().path("value");
             String current = row.path(e.getKey()).asText("");
-            switch (e.getValue().path("operation").asText("SET")) {
+            switch (bare ? "SET" : e.getValue().path("operation").asText("SET")) {
                 case "APPEND" -> row.put(e.getKey(), current + value.asText());
                 case "PREPEND" -> row.put(e.getKey(), value.asText() + current);
                 default -> row.set(e.getKey(), value.isNull() ? TextNode.valueOf("") : value.deepCopy());

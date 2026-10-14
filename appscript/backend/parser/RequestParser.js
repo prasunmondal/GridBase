@@ -189,7 +189,8 @@ class RequestParser {
                 values[column];
 
             //
-            // Primitive -> SET
+            // Primitive -> SET. The SDK sends every plain SET
+            // this way (RequestSerializer); keep accepting it.
             //
             if (
                 item === null ||
