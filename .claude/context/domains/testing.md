@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-13
+last_verified: 2026-10-14
 sources: [gridbase/src/test/, gridbase/pom.xml]
 ---
 # Testing
@@ -27,7 +27,9 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
 - **There is no failsafe plugin.** `*IT` classes run only when selected with `-Dtest`. `mvn verify`
   does not run them, even though the `ItConfig` Javadoc suggests it does (`known-issues.md`).
 - ITs default to a live deployment and spreadsheet (`ItConfig`). Override with `-Dhs.*` or the
-  `HS_ENDPOINT` / `HS_SPREADSHEET_ID` / `HS_TIME_ZONE` environment variables. They touch only
+  `HS_ENDPOINT` / `HS_SPREADSHEET_ID` / `HS_TIME_ZONE` environment variables. Every IT client logs
+  its network calls as they happen (`NetworkLogger.defaults()`, stderr); turn off with
+  `-Dhs.logNetwork=false` / `HS_LOG_NETWORK=false`. They touch only
   worksheets prefixed `IT_`. `TestData.resetAll()` reseeds `IT_Employees` / `IT_Departments` and
   invalidates `Employee`'s cache. `SchemaOperationsIT` leaves an `IT_Created_<timestamp>` sheet
   behind on every run, because the engine cannot delete worksheets.

@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.integrationTests;
 
 import io.github.prasunmondal.gridbase.GridBase;
+import io.github.prasunmondal.gridbase.NetworkLogger;
 import io.github.prasunmondal.gridbase.RetryPolicy;
 import io.github.prasunmondal.gridbase.SheetProperties;
 
@@ -15,6 +16,7 @@ import java.time.ZoneId;
  *   mvn verify -Dhs.endpoint=https://script.google.com/macros/s/&lt;id&gt;/exec -Dhs.spreadsheetId=&lt;id&gt;
  *   # or env vars HS_ENDPOINT / HS_SPREADSHEET_ID
  *   # local emulator: -Dhs.endpoint=http://127.0.0.1:8765/macros/s/LOCAL/exec
+ *   # network log (one line per request and reply, on stderr as they happen): on by default, -Dhs.logNetwork=false
  * </pre>
  *
  * <p>The tests only touch worksheets whose names start with {@code IT_}.</p>
@@ -29,14 +31,12 @@ public final class ItConfig {
 
     public static final ZoneId ZONE = ZoneId.of(setting("hs.timeZone", "HS_TIME_ZONE", "Asia/Kolkata"));
 
+    /** Logs every HTTP call to the engine as it happens; {@code null} when turned off. */
+    static final NetworkLogger NETWORK_LOGGER =
+            Boolean.parseBoolean(setting("hs.logNetwork", "HS_LOG_NETWORK", "true")) ? NetworkLogger.defaults() : null;
+
     /** Connection settings shared by the entity classes; each derives its own via {@code toBuilder()}. */
-    public static final SheetProperties BASE_PROPERTIES = SheetProperties.builder()
-            .scriptUrl(ENDPOINT)
-            .dbSheetUrl(SPREADSHEET_ID)
-            .timeZone(ZONE)
-            .requestTimeout(Duration.ofSeconds(120))
-            .retryPolicy(RetryPolicy.defaults())
-            .build();
+    public static final SheetProperties BASE_PROPERTIES = baseProperties();
 
     private static volatile GridBase db;
 
@@ -48,17 +48,33 @@ public final class ItConfig {
         if (db == null) {
             synchronized (ItConfig.class) {
                 if (db == null) {
-                    db = GridBase.builder()
+                    GridBase.Builder b = GridBase.builder()
                             .endpoint(ENDPOINT)
                             .defaultSpreadsheetId(SPREADSHEET_ID)
                             .timeZone(ZONE)
                             .requestTimeout(Duration.ofSeconds(120))
-                            .retryPolicy(RetryPolicy.defaults())
-                            .build();
+                            .retryPolicy(RetryPolicy.defaults());
+                    if (NETWORK_LOGGER != null) {
+                        b.logNetworkCalls(NETWORK_LOGGER);
+                    }
+                    db = b.build();
                 }
             }
         }
         return db;
+    }
+
+    private static SheetProperties baseProperties() {
+        SheetProperties.Builder b = SheetProperties.builder()
+                .scriptUrl(ENDPOINT)
+                .dbSheetUrl(SPREADSHEET_ID)
+                .timeZone(ZONE)
+                .requestTimeout(Duration.ofSeconds(120))
+                .retryPolicy(RetryPolicy.defaults());
+        if (NETWORK_LOGGER != null) {
+            b.logNetworkCalls(NETWORK_LOGGER);
+        }
+        return b.build();
     }
 
     private static String setting(String property, String env, String fallback) {
