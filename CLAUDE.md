@@ -73,3 +73,16 @@ architectural decision made?
 - All no: leave `.claude/` alone. Renames, refactors and formatting are never recorded.
 - Any yes: edit the affected section in place, add an ADR for a decision, set `last_verified` on
   files you checked, and run the lint.
+
+## Token discipline
+
+- **Output:** edit with diffs, never rewrite a whole file to change part of it. No preamble or
+  restated plans. Keep the final report short and leave out content the user can read in the diff.
+- **Reading:** Grep or Glob first, then Read only the lines you need (`offset`/`limit`). Never
+  re-read a file you already read or just edited. Do not paste file contents back into replies.
+- **Commands:** cut long output (`-q`, `| Select-Object -Last N`, surefire XML summaries) instead of
+  dumping whole build or test logs.
+- **Agents:** work inline. Spawn a subagent only when asked, or for a broad search whose details you
+  do not need to keep.
+- **Cache:** keep this file and `.claude/rules/` stable. Change them only when the knowledge check
+  requires it, and add to them in place rather than reorganising.
