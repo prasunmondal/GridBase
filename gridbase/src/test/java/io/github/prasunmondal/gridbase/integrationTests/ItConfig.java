@@ -24,7 +24,7 @@ import java.time.ZoneId;
 public final class ItConfig {
 
     public static final String ENDPOINT = setting("hs.endpoint", "HS_ENDPOINT",
-            "https://script.google.com/macros/s/AKfycbwZcSWm9-p5dHW_rTDOWu4uMIc_XOgCXSCxDnYihZ4zmOVcJU5yZ2A4_gLzrh2xiSnH/exec");
+            "https://script.google.com/macros/s/AKfycbxVKURk2d-RnrS3fZkK601GLdWMmqx5klq5vIvQXiCU22EMqNe9mMxQPRJkvtWK75Co/exec");
 
     public static final String SPREADSHEET_ID = setting("hs.spreadsheetId", "HS_SPREADSHEET_ID",
             "1C8rsAWa0XfpxfHSb-F-FALSvmCT1knQ5lBoegQ8Phwc");
