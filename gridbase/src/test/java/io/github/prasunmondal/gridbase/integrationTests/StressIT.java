@@ -72,7 +72,7 @@ class StressIT {
     private static final String WIDE_SHEET = "IT_StressWide";
     private static final int WIDE_ROWS = Integer.getInteger("hs.stress.wideRows", 100_000);
     private static final int WIDE_COLUMNS = Integer.getInteger("hs.stress.wideColumns", 50);
-    private static final int WIDE_CHUNK = Integer.getInteger("hs.stress.wideChunk", 5_000);
+    private static final int WIDE_CHUNK = Integer.getInteger("hs.stress.wideChunk", 10_000);
     private static final int WIDE_READ_CHUNK = Integer.getInteger("hs.stress.wideReadChunk", 0);
 
     /** Every row a stress test adds has a Name with this prefix, so it can be counted and found. */
