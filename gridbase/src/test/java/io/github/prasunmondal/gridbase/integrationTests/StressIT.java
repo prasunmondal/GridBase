@@ -14,13 +14,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -37,6 +40,7 @@ import static io.github.prasunmondal.gridbase.integrationTests.TestData.employee
 import static io.github.prasunmondal.gridbase.integrationTests.TestData.employeeCount;
 import static io.github.prasunmondal.gridbase.integrationTests.TestData.ids;
 import static io.github.prasunmondal.gridbase.integrationTests.TestData.newEmployee;
+import static io.github.prasunmondal.gridbase.query.Filters.between;
 import static io.github.prasunmondal.gridbase.query.Filters.eq;
 import static io.github.prasunmondal.gridbase.query.Filters.startsWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -64,6 +68,12 @@ class StressIT {
     private static final int ROUNDS = Integer.getInteger("hs.stress.rounds", 5);
     private static final int ROWS = Integer.getInteger("hs.stress.rows", 500);
     private static final int WRITE_ATTEMPTS = Integer.getInteger("hs.stress.writeAttempts", 8);
+
+    private static final String WIDE_SHEET = "IT_StressWide";
+    private static final int WIDE_ROWS = Integer.getInteger("hs.stress.wideRows", 100_000);
+    private static final int WIDE_COLUMNS = Integer.getInteger("hs.stress.wideColumns", 50);
+    private static final int WIDE_CHUNK = Integer.getInteger("hs.stress.wideChunk", 5_000);
+    private static final int WIDE_READ_CHUNK = Integer.getInteger("hs.stress.wideReadChunk", 0);
 
     /** Every row a stress test adds has a Name with this prefix, so it can be counted and found. */
     private static final String PREFIX = "Stress ";
@@ -251,6 +261,87 @@ class StressIT {
         int requests = threads * ROUNDS * 2;
         System.err.printf("[stress] queued repository: %d requests in %d HTTP calls%n", requests, httpCalls.get());
         assertTrue(httpCalls.get() <= requests, httpCalls.get() + " calls for " + requests + " requests");
+    }
+
+    /**
+     * Fills a dedicated worksheet with WIDE_ROWS x WIDE_COLUMNS cells (5M by default) and reads every
+     * cell back. Off unless {@code -Dhs.stress.wide=true}, so {@code -Dtest='*IT'} never sends 5M cells
+     * by accident. Inserts go in chunks of {@code hs.stress.wideChunk} rows; reads are one SELECT of the
+     * whole sheet, or chunks of {@code hs.stress.wideReadChunk} rows (a BETWEEN on Seq) when that is set.
+     * A Google spreadsheet holds at most 10M cells, so the target spreadsheet needs room for this sheet.
+     */
+    @Test
+    @Tag("wide")
+    @EnabledIfSystemProperty(named = "hs.stress.wide", matches = "true")
+    @DisplayName("a wide worksheet of many rows and columns is written and read back cell for cell")
+    void wideWorksheetWritesAndReadsBackEveryCell() {
+        Worksheet wide = ItConfig.db().worksheet(WIDE_SHEET);
+        List<String> columns = wideColumns();
+        TestData.createIfMissing(wide);
+        wide.addColumns(columns.toArray(String[]::new)).skipExisting().execute();
+        wide.clear().execute();
+
+        Stats insert = new Stats("wide insert of " + WIDE_CHUNK + " rows x " + WIDE_COLUMNS + " columns");
+        try {
+            for (int from = 0; from < WIDE_ROWS; from += WIDE_CHUNK) {
+                List<Object> rows = new ArrayList<>();
+                for (int r = from; r < Math.min(from + WIDE_CHUNK, WIDE_ROWS); r++) {
+                    rows.add(wideRow(r, columns));
+                }
+                insert.time(() -> withLockRetry(() -> wide.insertAll(rows).execute()));
+            }
+            insert.print();
+
+            List<Row> back = new ArrayList<>(WIDE_ROWS);
+            Stats read = new Stats("wide select" + (WIDE_READ_CHUNK > 0 ? " of " + WIDE_READ_CHUNK + " rows" : " of the whole sheet"));
+            if (WIDE_READ_CHUNK > 0) {
+                for (int from = 0; from < WIDE_ROWS; from += WIDE_READ_CHUNK) {
+                    int lo = from;
+                    int hi = Math.min(from + WIDE_READ_CHUNK, WIDE_ROWS) - 1;
+                    back.addAll(read.time(() -> wide.select().where(between("Seq", lo, hi)).fetch()));
+                }
+            } else {
+                back.addAll(read.time(() -> wide.select().fetch()));
+            }
+            read.print();
+
+            assertEquals(WIDE_ROWS, back.size(), "rows read back");
+            back.sort((a, b) -> Long.compare(a.getLong("Seq"), b.getLong("Seq")));
+            for (int r = 0; r < WIDE_ROWS; r++) {
+                Row row = back.get(r);
+                assertEquals(columns.size(), row.columns().size(), "columns of row " + r);
+                Map<String, Object> expected = wideRow(r, columns);
+                for (String column : columns) {
+                    Object want = expected.get(column);
+                    if (want instanceof Long) {
+                        assertEquals(want, row.getLong(column), "row " + r + " " + column);
+                    } else {
+                        assertEquals(want, row.getString(column), "row " + r + " " + column);
+                    }
+                }
+            }
+        } finally {
+            wide.clear().execute();
+        }
+    }
+
+    private static List<String> wideColumns() {
+        List<String> columns = new ArrayList<>();
+        columns.add("Seq");
+        for (int c = 1; c < WIDE_COLUMNS; c++) {
+            columns.add(String.format("C%02d", c));
+        }
+        return columns;
+    }
+
+    /** Deterministic content, so every cell can be checked without keeping what was sent. */
+    private static Map<String, Object> wideRow(int r, List<String> columns) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("Seq", (long) r);
+        for (int c = 1; c < columns.size(); c++) {
+            row.put(columns.get(c), c % 2 == 0 ? (long) r * 100 + c : "r" + r + "c" + c);
+        }
+        return row;
     }
 
     // ------------------------------------------------------------------ helpers

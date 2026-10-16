@@ -50,6 +50,9 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
 - `StressIT` (`@Tag("stress")`) is sized by `-Dhs.stress.clients|rounds|rows|writeAttempts` (defaults 8/5/500/8),
   prints p50/p95/max latencies to stderr, and retries writes only on retryable lock timeouts. It runs on the
   emulator, but contention only happens on a live deployment.
+  Its wide test (`IT_StressWide`, default 100,000 rows x 50 columns) runs only with `-Dhs.stress.wide=true`;
+  `hs.stress.wideRows|wideColumns|wideChunk|wideReadChunk` size it. Above 26 columns it fails until the engine
+  grows the grid for columns (`known-issues.md`).
 - `integrationTests/Employee.java` is the reference entity (its own `SheetProperties`, hooks, cache
   and queue).
 

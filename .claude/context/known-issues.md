@@ -19,6 +19,7 @@ users need to know.
 | Every scan (SELECT / UPDATE / DELETE / UPSERT / CLONE) loads the whole worksheet in one `getDataRange()` read | `loader/ValueReader.js` | Time and memory grow with sheet size, even with `limit`. INSERT-only worksheets read just the header row (ADR-015; review #7, perf fix #1). |
 | Reads take no lock, so they can see a half-applied commit | `api/SheetEngine.js` | By design (ADR-007). Since ADR-015 the commit goes out as one flushed batch, which shortens the window. |
 | Scattered UPDATE / DELETE rows still cost one Sheets call per row | `commit/WorksheetCommitter.js` | Only adjacent rows are batched. SpreadsheetApp cannot write or delete scattered rows in one call. |
+| ADD COLUMNS past the grid's last column fails ("coordinates of the range are outside the dimensions of the sheet") | `execution/select/WorksheetColumnExecutor.js` | A new worksheet is 26 columns wide (A–Z), so a sheet cannot have more than 26 columns. Rows are grown (`WorksheetCommitter.ensureRows`); columns are not. Found by `StressIT` wide test. |
 | The shipped `appsscript.json` enables Drive with explicit scopes (`f2a258a`), contrary to ADR-014 | `appscript/appsscript.json` | A redeploy then needs the owner's consent for the Drive scope. Either revert the manifest or supersede ADR-014. |
 
 ## Open: SDK, build and docs
