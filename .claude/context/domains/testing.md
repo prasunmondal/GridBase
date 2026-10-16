@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-14
+last_verified: 2026-10-16
 sources: [gridbase/src/test/, gridbase/pom.xml]
 ---
 # Testing
@@ -47,6 +47,9 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
 - ITs tagged `@Tag("live")` (`ConcurrencyIT`, `UpdateIT.updateKeepsFormulasInOtherColumns`) need a live
   deployment: the emulator is serial and does not evaluate formulas. `SchemaOperationsIT.lastUpdatedWithoutDrive…`
   aborts unless the engine lacks Drive (`HS_DRIVE=off`).
+- `StressIT` (`@Tag("stress")`) is sized by `-Dhs.stress.clients|rounds|rows|writeAttempts` (defaults 8/5/500/8),
+  prints p50/p95/max latencies to stderr, and retries writes only on retryable lock timeouts. It runs on the
+  emulator, but contention only happens on a live deployment.
 - `integrationTests/Employee.java` is the reference entity (its own `SheetProperties`, hooks, cache
   and queue).
 
