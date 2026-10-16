@@ -158,7 +158,7 @@ ResponseParser                          ← success → typed results; success:f
 | `.query` | `Filters` (static factory), `Filter`, `Sort` |
 | `.spec` | Operation builders and the `Operation` record |
 | `.result` | `Row`, `RowsResult`, `ColumnsResult`, `AddColumnsResult`, `ClearResult`, `WorksheetCreated` |
-| `.mapping` | `@SheetTable`, `@SheetKey`, `@OptionalColumn`, `Repository<T>` |
+| `.mapping` | `@SheetTable`, `@SheetKey`, `@OptionalColumn`, `@IgnoreUnknownColumns`, `Repository<T>` |
 | `.transport` | `Transport` interface, `HttpTransport` |
 | `.exception` | `GridBaseException` → `ServerException`, `TransportException` |
 
@@ -299,6 +299,10 @@ public class Customer {
     public String name;
     @OptionalColumn @JsonProperty("Phone No") public String phone;   // skipped on sheets without "Phone No"
 }
+
+// Or make every property optional at once:
+@IgnoreUnknownColumns
+public class Lead { public String name; public String email; public String source; }
 
 // Maps have no annotations; name the columns instead:
 db.worksheet("Customers").insert(map).optionalColumns("Phone No").execute();

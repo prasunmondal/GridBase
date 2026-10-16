@@ -19,7 +19,8 @@ intent and invariants.
 - `GridBase.builder()...build()` → `db.worksheet(name)` gives a `Worksheet`, which offers
   untyped `Row` access through fluent specs.
 - `db.repository(Entity.class)` gives a `mapping.Repository<T>`. It is driven by `@SheetTable` /
-  `@SheetKey` plus Jackson property names (`EntityMetadata`). `@OptionalColumn` properties are found by
+  `@SheetKey` plus Jackson property names (`EntityMetadata`). `@OptionalColumn` properties (every property of an
+  `@IgnoreUnknownColumns` class) are found by
   `internal.OptionalColumns` (Jackson introspection) whenever a POJO becomes a row.
 - **`SheetProperties`**: one constant per entity that holds the script URL, the spreadsheet URL or
   id, the tab, the time zone, retries, timeouts, auth, cache, queue and pre/post network-call

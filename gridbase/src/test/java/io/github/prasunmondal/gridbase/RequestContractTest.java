@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.prasunmondal.gridbase.mapping.IgnoreUnknownColumns;
 import io.github.prasunmondal.gridbase.mapping.OptionalColumn;
 import io.github.prasunmondal.gridbase.mapping.Repository;
 import io.github.prasunmondal.gridbase.mapping.SheetKey;
@@ -178,6 +179,10 @@ class RequestContractTest {
     public record Tag(String id, @OptionalColumn String colour) {
     }
 
+    @IgnoreUnknownColumns
+    public record Note(String id, @JsonProperty("Body Text") String body) {
+    }
+
     private static Contact contact() {
         Contact c = new Contact();
         c.id = "C-1";
@@ -196,6 +201,12 @@ class RequestContractTest {
 
         db.worksheet("T").update().where(eq("id", "C-1")).set(contact()).execute();
         assertEquals(json("[\"Phone No\"]"), transport.lastOperation().path("optionalColumns"));
+    }
+
+    @Test
+    void ignoreUnknownColumnsMakesEveryPropertyOptional() {
+        db.worksheet("T").insert(new Note("n", "hi")).execute();
+        assertEquals(json("[\"id\",\"Body Text\"]"), transport.lastOperation().path("optionalColumns"));
     }
 
     @Test
