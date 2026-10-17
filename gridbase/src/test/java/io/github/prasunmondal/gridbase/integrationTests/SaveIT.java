@@ -233,8 +233,8 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("an unknown column fails saveAll() AFTER the clear: the sheet is left empty (not atomic)")
-    void unknownColumnLeavesSheetEmpty() {
+    @DisplayName("an unknown column fails save() and leaves the sheet untouched (the clear is not committed)")
+    void unknownColumnLeavesSheetUntouched() {
         EmployeeWithUnknownColumn e = new EmployeeWithUnknownColumn();
         e.id = "E201";
         e.name = "Bad Column";
@@ -243,7 +243,8 @@ class SaveIT {
         ServerException ex = assertThrows(ServerException.class,
                 () -> ItConfig.db().repository(EmployeeWithUnknownColumn.class).save(e));
         assertTrue(ex.getServerMessage().contains("Unknown column: NoSuchColumn"), ex.getServerMessage());
-        assertEquals(0, employeeCount());
+        assertEquals(EMPLOYEE_COUNT, employeeCount());
+        assertTrue(employees.existsById("E001"));
     }
 
     @Test

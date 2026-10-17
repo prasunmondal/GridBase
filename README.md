@@ -278,9 +278,11 @@ customers.deleteById("C-42");
 | `upsert` / `upsertAll` | one `UPSERT` per entity, keyed on `@SheetKey` (key must be non-null) | row with the same key is updated, others kept |
 | `save` / `saveAll` | `CLEAR_WORKSHEET` then `INSERT`, in one request | all deleted (header kept) |
 
-`save` / `saveAll` are **not atomic**: `CLEAR_WORKSHEET` is a schema op that the engine applies
-immediately, so if the insert then fails (e.g. an unknown column) the sheet is left empty. Request
-queues always send them in a call of their own.
+`save` / `saveAll` are **all-or-nothing**: the engine stages `CLEAR_WORKSHEET` like a row operation
+and commits it together with the `INSERT`, so if the insert fails (e.g. an unknown column) the sheet
+is left as it was. Engines deployed before this fix clear immediately and leave the sheet empty on
+such a failure: redeploy (see [Engine issues](#engine-issues)). Request queues always send them in a
+call of their own.
 
 Records work too (`public record Product(@SheetKey String sku, String title) {}`). Column names follow
 Jackson property names; use `@JsonProperty("Header Text")` and `@JsonIgnore` as usual. The engine does
@@ -878,6 +880,7 @@ These are in the Apps Script engine (`appscript/`), not the SDK.
 | **The lock was released before the writes reached the sheet.** Apps Script sends buffered writes when the script ends, so the next writer could still read the old last row and overwrite rows just appended. | `SpreadsheetApp.flush()` runs before `releaseLock()`, on failures too. The response is built after the lock is released. | `InsertIT.concurrentInsertsAllLand` (the race needs a live deployment) |
 | **An insert past the sheet's last grid row failed** (*The coordinates of the range are outside the dimensions of the sheet*), e.g. the 1000th row of a new tab. | `WorksheetCommitter` adds the missing rows (`insertRowsAfter`) before appending. | `SchemaOperationsIT.insertPastGridGrowsWorksheet` |
 | **UPDATE rewrote the whole row.** Cells in columns it did not change were written back as values, so formulas became static values and text such as `00042` became the number 42. | Only the span of changed columns is written. | — (needs a formula or plain-text cell, which the SDK cannot create) |
+| **A failed `save` left the sheet empty.** `CLEAR_WORKSHEET` cleared the sheet at once, so an `INSERT` failing later in the request (e.g. *Unknown column*) left no rows. | `CLEAR_WORKSHEET` drops the in-memory rows and the commit clears the sheet, together with the request's other row changes. If any operation fails, nothing is written. | `SaveIT.unknownColumnLeavesSheetUntouched` |
 
 Notes on the lock:
 

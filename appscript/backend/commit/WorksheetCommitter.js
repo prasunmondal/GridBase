@@ -5,7 +5,8 @@ class WorksheetCommitter {
         const changeSet =
             worksheetData.getChangeSet();
 
-        if (changeSet.created.length === 0 &&
+        if (!worksheetData.cleared &&
+            changeSet.created.length === 0 &&
             changeSet.updated.length === 0 &&
             changeSet.deleted.length === 0) {
 
@@ -18,6 +19,18 @@ class WorksheetCommitter {
                 worksheetData.spreadsheetId,
                 worksheetData.worksheet
             );
+
+        //
+        // First, so the rows inserted after the clear are appended
+        // below the header.
+        //
+        if (worksheetData.cleared) {
+
+            this.commitCleared(worksheet);
+
+            worksheetData.cleared = false;
+
+        }
 
         this.commitCreated(
             worksheet,
@@ -36,6 +49,36 @@ class WorksheetCommitter {
         );
 
         changeSet.clear();
+
+    }
+
+    //
+    // Clears the contents of every row below the header.
+    // The rows themselves (and their formatting) stay.
+    //
+    commitCleared(worksheet) {
+
+        const lastRow =
+            worksheet.getLastRow();
+
+        const lastColumn =
+            worksheet.getLastColumn();
+
+        if (lastRow <= 1 ||
+            lastColumn === 0) {
+
+            return;
+
+        }
+
+        worksheet
+            .getRange(
+                2,
+                1,
+                lastRow - 1,
+                lastColumn
+            )
+            .clearContent();
 
     }
 

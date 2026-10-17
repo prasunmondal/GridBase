@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-14
+last_verified: 2026-10-17
 sources: [appscript/backend/, appscript/deploy.bat, appscript/deploy.cmd, gridbase/src/test/emulator/engine-emulator.js]
 ---
 # Engine (Apps Script, `appscript/`)
@@ -22,8 +22,11 @@ Layers: `parser/`, `compiler/` + `execution/predicate/compiled/` (filter compila
 ## Semantics consumers rely on
 - **Row operations commit together** at the end of a request (`commitAll` runs after every
   operation). If an operation throws, no row changes are written. Later operations see earlier ones.
-- **Schema operations** (CREATE / CLEAR / ADD_COLUMNS) touch the sheet immediately, so they are
+- **Schema operations** (CREATE / ADD_COLUMNS) touch the sheet immediately, so they are
   neither all-or-nothing nor safe to re-send. The SDK never queues them (ADR-006).
+- **CLEAR_WORKSHEET is staged** (ADR-016): it drops the in-memory rows and changes staged before it,
+  and the commit clears rows 2..last (`clearContent`) before appending. A failing operation later in
+  the request (the INSERT of a `save`) leaves the sheet untouched. Engines before ADR-016 cleared at once.
 - **Write requests take `LockService.getScriptLock()`** for up to `EngineConfig.lockTimeoutMillis`
   (30 s). A timeout returns `success:false` "Lock timeout…", which the SDK treats as retryable. Reads
   take no lock and may see a half-applied commit (ADR-007). Buffered writes are flushed **before** the
@@ -66,4 +69,4 @@ Layers: `parser/`, `compiler/` + `execution/predicate/compiled/` (filter compila
   buffered-write race or lock contention: check those on a live deployment.
 
 ## Related
-- `wire-contract.md`, `testing.md`, `known-issues.md`, ADR-001, ADR-007, ADR-015
+- `wire-contract.md`, `testing.md`, `known-issues.md`, ADR-001, ADR-007, ADR-015, ADR-016

@@ -595,8 +595,9 @@ orders.cloneRows()
 Customer.repository().saveAll(freshList);   // clears the rows (header kept), then inserts freshList
 ```
 
-This is **not atomic**: if the insert fails, the sheet stays empty. For important data, upsert
-instead (`upsertAll`), or keep a backup sheet.
+The clear and the insert commit together: if the insert fails (e.g. an unknown column), the sheet
+is left as it was. This needs an engine deployed after the fix (see the README "Engine issues");
+an older engine clears first and leaves the sheet empty.
 
 
 ## 6. Entities and repositories
@@ -652,7 +653,7 @@ customers.upsertAll(changed);         // one request, all-or-nothing
 |---|---|
 | Add rows, duplicates OK | `insert` / `insertAll` |
 | Create or update by key | `upsert` / `upsertAll` |
-| Sheet should contain exactly this list | `save` / `saveAll` (not atomic, see [above](#replace-a-whole-sheets-contents)) |
+| Sheet should contain exactly this list | `save` / `saveAll` (all-or-nothing on a current engine, see [above](#replace-a-whole-sheets-contents)) |
 | Remove everything | `deleteAll()` |
 
 The engine does not enforce key uniqueness. Use `upsert` if duplicate keys would be a problem.
@@ -1139,7 +1140,7 @@ Point your client at `http://127.0.0.1:8765/macros/s/LOCAL/exec`.
 | Dates are one day off | Client time zone is UTC | `.timeZone(<spreadsheet zone>)` |
 | Upserted row has a blank key | Key given only in `where` | Use `.key(column, value)` |
 | Update/delete throws about missing `where` | Safety check | Add `where(...)` or call `.all()` |
-| Sheet empty after `saveAll` failed | `save*` clears first, not atomic | Use `upsertAll`, or validate before saving |
+| Sheet empty after `saveAll` failed | Engine deployed before the atomic-save fix clears first | Redeploy the engine |
 | Old data after editing the sheet by hand | Cache only knows its own writes | `worksheet.clearCache()`, shorter expiry or `forceRefresh()` |
 | `Worksheet already exists` | `create()` isn't idempotent | See [Create it only if missing](#create-it-only-if-missing) |
 | Lost rows with many concurrent writers | Old engine without locking | Redeploy the current engine (it locks writes) |

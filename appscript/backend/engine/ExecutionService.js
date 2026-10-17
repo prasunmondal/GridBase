@@ -141,7 +141,7 @@ class ExecutionService {
 
         const result =
             this.clearWorksheetExecutor.execute(
-                context.resources,
+                context,
                 operation
             );
 

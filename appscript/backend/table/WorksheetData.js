@@ -19,6 +19,27 @@ class WorksheetData {
         // false while only the header row has been read
         this.rowsLoaded = false;
 
+        // true once CLEAR_WORKSHEET ran; the commit clears the sheet
+        this.cleared = false;
+
+    }
+
+    //
+    // CLEAR_WORKSHEET: no rows are left, so none are read later in
+    // the request, and changes staged before it are dropped.
+    //
+    clearRows() {
+
+        this.rows = [];
+
+        this.indexes = [];
+
+        this.changeSet.clear();
+
+        this.rowsLoaded = true;
+
+        this.cleared = true;
+
     }
 
     addRow(row) {
