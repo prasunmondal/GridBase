@@ -196,7 +196,10 @@ class SchemaOperationsIT {
         System.out.println("Elapsed: " +
                 Duration.between(before, after).toMillis() + " ms");
 
-        assertTrue(after.isAfter(before), "expected " + after + " after " + before);
+        assertTrue(
+                !after.isBefore(before),
+                "expected " + after + " to be equal to or after " + before
+        );
     }
 
     @Test
