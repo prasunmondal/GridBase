@@ -470,6 +470,33 @@ SheetProperties.builder()
   network request did fail.
 - A queued window is sent as one request, so one failure triggers it once.
 
+#### Per-call failure actions
+
+A single call can have its own `onFailure`, in addition to the client's. It runs **if and only if
+that call fails** (its `execute()` throws, its future completes exceptionally, or its `Queued`
+handle fails), after the client's actions, with the same `RequestFailure`:
+
+```java
+Employees.worksheet().select().where(eq("dept", "Ops"))
+        .onFailure(f -> showToast("Could not load Ops: " + f.failure().getMessage()))
+        .fetch();
+
+Employee.repository().requests().findAll()
+        .onFailure(f -> retryLater())
+        .execute();                                  // also executeAsync() and queue(reqQ)
+
+db.batch().onFailure(f -> rollbackUi()) ... .execute();
+```
+
+- Available on every spec (`select()`, `insert(...)`, `update()`, ...), on `SheetRequest` and on
+  `Batch`. A spec added to a `Batch` uses the batch's actions, not its own.
+- `SheetRequest.onFailure` returns a new request; the original is unchanged.
+- It also sees failures without a network request, such as an exception while mapping the reply; then
+  `requestId()` and `requestBody()` are `null` and `attempts()` is 0.
+- A `NETWORK_FIRST` read served from a stale cached reply succeeded, so a per-call action does not run
+  (the client's action does).
+- Repository shortcuts such as `findById(...)` have no per-call hook; use `requests().findById(...)`.
+
 ### Log every network call
 
 `logNetworkCalls()` writes one line per HTTP request and one per reply, retries included. With a

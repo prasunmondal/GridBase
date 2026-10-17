@@ -6,6 +6,8 @@ import io.github.prasunmondal.gridbase.spec.OperationSpec;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Several operations sent as <b>one</b> HTTP request and executed in order by the engine.
@@ -32,6 +34,7 @@ public final class Batch {
 
     private final GridBase client;
     private final List<Operation> operations = new ArrayList<>();
+    private final List<Consumer<RequestFailure>> failureActions = new ArrayList<>();
     private BatchResult result;
     private boolean executed;
 
@@ -50,6 +53,15 @@ public final class Batch {
         return new Ref<>(this, operations.size() - 1, spec.resultType());
     }
 
+    /**
+     * Adds an action that runs if {@link #execute()} throws, after the client's own {@code onFailure}
+     * actions. An exception thrown by the action is logged, not propagated.
+     */
+    public Batch onFailure(Consumer<RequestFailure> action) {
+        failureActions.add(Objects.requireNonNull(action, "action"));
+        return this;
+    }
+
     public int size() {
         return operations.size();
     }
@@ -62,7 +74,12 @@ public final class Batch {
         if (operations.isEmpty()) {
             throw new IllegalStateException("Batch is empty");
         }
-        result = new BatchResult(this, client.execute(operations));
+        try {
+            result = new BatchResult(this, client.execute(operations));
+        } catch (RuntimeException e) {
+            client.reportCallFailure(e, operations, failureActions);
+            throw e;
+        }
         executed = true;
         return result;
     }

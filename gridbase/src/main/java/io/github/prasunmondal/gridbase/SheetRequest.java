@@ -4,9 +4,11 @@ import io.github.prasunmondal.gridbase.internal.Compat;
 import io.github.prasunmondal.gridbase.result.ExecutionResponse;
 import io.github.prasunmondal.gridbase.spec.Operation;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
@@ -34,14 +36,16 @@ public final class SheetRequest<T> {
     private final Function<ExecutionResponse, T> mapper;
     private final T constant;
     private final boolean forceRefresh;
+    private final List<Consumer<RequestFailure>> failureActions;
 
-    private SheetRequest(GridBase client, List<Operation> operations,
-                         Function<ExecutionResponse, T> mapper, T constant, boolean forceRefresh) {
+    private SheetRequest(GridBase client, List<Operation> operations, Function<ExecutionResponse, T> mapper,
+                         T constant, boolean forceRefresh, List<Consumer<RequestFailure>> failureActions) {
         this.client = client;
         this.operations = operations;
         this.mapper = mapper;
         this.constant = constant;
         this.forceRefresh = forceRefresh;
+        this.failureActions = failureActions;
     }
 
     /** Operations sent as one engine request (all-or-nothing for row changes), mapped by {@code mapper}. */
@@ -51,12 +55,13 @@ public final class SheetRequest<T> {
         if (operations.isEmpty()) {
             throw new IllegalArgumentException("At least one operation is required; use completed(...)");
         }
-        return new SheetRequest<>(client, Compat.copyOf(operations), Objects.requireNonNull(mapper), null, false);
+        return new SheetRequest<>(client, Compat.copyOf(operations), Objects.requireNonNull(mapper), null, false,
+                Compat.listOf());
     }
 
     /** A request that needs no network call (e.g. saving an empty list). */
     public static <T> SheetRequest<T> completed(T value) {
-        return new SheetRequest<>(null, Compat.listOf(), null, value, false);
+        return new SheetRequest<>(null, Compat.listOf(), null, value, false, Compat.listOf());
     }
 
     /**
@@ -65,7 +70,23 @@ public final class SheetRequest<T> {
      * throws (no stale fallback) and the old cache entry is kept. No effect without a cache, or on writes.
      */
     public SheetRequest<T> forceRefresh() {
-        return isCompleted() ? this : new SheetRequest<>(client, operations, mapper, null, true);
+        return isCompleted() ? this : new SheetRequest<>(client, operations, mapper, null, true, failureActions);
+    }
+
+    /**
+     * The same request, plus an action that runs if this request fails: when {@link #execute()} throws,
+     * when {@link #executeAsync()} completes exceptionally, or when its {@link Queued} handle fails. It
+     * runs after the client's own {@code onFailure} actions, on the thread that sees the failure. An
+     * exception thrown by the action is logged, not propagated. No effect on a completed request.
+     */
+    public SheetRequest<T> onFailure(Consumer<RequestFailure> action) {
+        Objects.requireNonNull(action, "action");
+        if (isCompleted()) {
+            return this;
+        }
+        List<Consumer<RequestFailure>> actions = new ArrayList<>(failureActions);
+        actions.add(action);
+        return new SheetRequest<>(client, operations, mapper, null, forceRefresh, Compat.copyOf(actions));
     }
 
     public boolean isForceRefresh() {
@@ -77,15 +98,28 @@ public final class SheetRequest<T> {
         if (isCompleted()) {
             return constant;
         }
-        return mapper.apply(forceRefresh ? client.executeRefreshing(operations) : client.execute(operations));
+        try {
+            return mapper.apply(forceRefresh ? client.executeRefreshing(operations) : client.execute(operations));
+        } catch (RuntimeException e) {
+            reportFailure(e);
+            throw e;
+        }
     }
 
     public CompletableFuture<T> executeAsync() {
         if (isCompleted()) {
             return CompletableFuture.completedFuture(constant);
         }
-        return (forceRefresh ? client.executeRefreshingAsync(operations) : client.executeAsync(operations))
-                .thenApply(mapper);
+        CompletableFuture<T> result = (forceRefresh ? client.executeRefreshingAsync(operations)
+                : client.executeAsync(operations)).thenApply(mapper);
+        if (failureActions.isEmpty()) {
+            return result;
+        }
+        return result.whenComplete((value, failure) -> {
+            if (failure != null) {
+                reportFailure(failure);
+            }
+        });
     }
 
     /** Adds this request to {@code queue}; the result is available after {@code queue.execute()}. */
@@ -99,7 +133,8 @@ public final class SheetRequest<T> {
         if (isCompleted()) {
             return completed(f.apply(constant));
         }
-        return new SheetRequest<>(client, operations, r -> f.apply(mapper.apply(r)), null, forceRefresh);
+        return new SheetRequest<>(client, operations, r -> f.apply(mapper.apply(r)), null, forceRefresh,
+                failureActions);
     }
 
     public List<Operation> operations() {
@@ -108,6 +143,13 @@ public final class SheetRequest<T> {
 
     boolean isCompleted() {
         return client == null;
+    }
+
+    /** Runs this request's own failure actions; called by whoever sees the request fail. */
+    void reportFailure(Throwable failure) {
+        if (!isCompleted()) {
+            client.reportCallFailure(failure, operations, failureActions);
+        }
     }
 
     GridBase client() {

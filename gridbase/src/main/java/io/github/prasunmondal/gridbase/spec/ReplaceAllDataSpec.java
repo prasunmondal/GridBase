@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.spec;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.RequestFailure;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 
@@ -8,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * REPLACE_ALL_DATA: replaces every data row (the header row is kept) with the given rows, in one step. The engine
@@ -54,6 +56,12 @@ public final class ReplaceAllDataSpec extends OperationSpec<RowsResult> {
      */
     public ReplaceAllDataSpec optionalColumns(String... columns) {
         addOptionalColumns(columns);
+        return this;
+    }
+
+    @Override
+    public ReplaceAllDataSpec onFailure(Consumer<RequestFailure> action) {
+        super.onFailure(action);
         return this;
     }
 

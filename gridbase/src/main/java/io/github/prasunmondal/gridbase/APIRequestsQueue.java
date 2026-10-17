@@ -119,6 +119,12 @@ public final class APIRequestsQueue {
             }
         }
 
+        for (Entry<?> e : entries) {
+            if (e.handle().failed()) {
+                e.request().reportFailure(e.handle().failure());
+            }
+        }
+
         List<RuntimeException> failures = entries.stream()
                 .map(e -> e.handle().failure())
                 .filter(f -> f != null)

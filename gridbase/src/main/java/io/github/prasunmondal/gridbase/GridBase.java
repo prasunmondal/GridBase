@@ -37,6 +37,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -92,6 +93,8 @@ public final class GridBase {
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
     private final List<Consumer<RequestFailure>> failureActions;
+    /** Details of requests that failed for good, by their exception, for per-call failure actions. */
+    private final Map<RuntimeException, Sent> failedRequests = Collections.synchronizedMap(new WeakHashMap<>());
     private final List<NetworkLogger> cacheLoggers;
     private final ResponseCache cache;
     private final CacheStrategy cacheStrategy;
@@ -583,16 +586,40 @@ public final class GridBase {
             }
         } catch (RuntimeException e) {
             if (isFinal.test(e)) {
-                notifyFailure(new RequestFailure(requestId, body, readOnly, attempt, e,
-                        Duration.ofNanos(System.nanoTime() - start)));
+                Sent sent = new Sent(requestId, body, readOnly, attempt, Duration.ofNanos(System.nanoTime() - start));
+                failedRequests.put(e, sent);
+                runFailureActions(failureActions, sent.failure(e));
             }
             throw e;
         }
     }
 
+    /** A failed request without its exception, so the weak map's values do not keep its keys alive. */
+    private record Sent(String requestId, String body, boolean readOnly, int attempts, Duration elapsed) {
+        RequestFailure failure(RuntimeException e) {
+            return new RequestFailure(requestId, body, readOnly, attempts, e, elapsed);
+        }
+    }
+
+    /**
+     * Runs a call's own failure actions for {@code failure}, with the details of the request that threw
+     * it, or with no request details if it was thrown before or after any request was sent.
+     */
+    void reportCallFailure(Throwable failure, List<Operation> operations, List<Consumer<RequestFailure>> actions) {
+        if (actions.isEmpty()) {
+            return;
+        }
+        Throwable cause = unwrap(failure);
+        RuntimeException e = cause instanceof RuntimeException r ? r
+                : new GridBaseException(String.valueOf(cause.getMessage()), cause, false);
+        Sent sent = failedRequests.get(e);
+        runFailureActions(actions, sent != null ? sent.failure(e)
+                : new RequestFailure(null, null, isReadOnly(operations), 0, e, Duration.ZERO));
+    }
+
     /** A failing failure action is logged and never replaces the request's own exception. */
-    private void notifyFailure(RequestFailure failure) {
-        for (Consumer<RequestFailure> action : failureActions) {
+    private static void runFailureActions(List<Consumer<RequestFailure>> actions, RequestFailure failure) {
+        for (Consumer<RequestFailure> action : actions) {
             try {
                 action.accept(failure);
             } catch (RuntimeException hookError) {

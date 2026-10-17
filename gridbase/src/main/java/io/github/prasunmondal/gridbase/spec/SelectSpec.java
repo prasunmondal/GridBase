@@ -70,7 +70,8 @@ public final class SelectSpec extends FilterSpec<SelectSpec> {
         if (op.limit() != 0) {
             op = op.withLimit(1);
         }
-        return SheetRequest.of(worksheet.client(), Compat.listOf(op), r -> ((RowsResult) r.results().get(0)).first());
+        return withFailureActions(SheetRequest.of(worksheet.client(), Compat.listOf(op),
+                r -> ((RowsResult) r.results().get(0)).first()));
     }
 
     public <T> SheetRequest<Optional<T>> firstRequest(Class<T> type) {

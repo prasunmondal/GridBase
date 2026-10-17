@@ -5,6 +5,7 @@ import io.github.prasunmondal.gridbase.internal.OptionalColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.prasunmondal.gridbase.APIRequestsQueue;
 import io.github.prasunmondal.gridbase.Queued;
+import io.github.prasunmondal.gridbase.RequestFailure;
 import io.github.prasunmondal.gridbase.SheetRequest;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.result.OperationResult;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /**
  * A fluent, not-yet-executed operation against one worksheet.
@@ -38,6 +40,8 @@ public abstract class OperationSpec<R extends OperationResult> {
     /** Columns written only if the sheet has them; see {@link io.github.prasunmondal.gridbase.mapping.OptionalColumn}. */
     protected final Set<String> optionalColumns = new LinkedHashSet<>();
 
+    private final List<Consumer<RequestFailure>> failureActions = new ArrayList<>();
+
     private Class<?> lastRowType;
     private List<String> lastRowOptionalColumns;
 
@@ -54,6 +58,9 @@ public abstract class OperationSpec<R extends OperationResult> {
 
     /** Sends this operation as a single-operation request and returns its result. */
     public R execute() {
+        if (!failureActions.isEmpty()) {
+            return request().execute();
+        }
         return worksheet.client().executeOne(toOperation(), resultType());
     }
 
@@ -62,13 +69,36 @@ public abstract class OperationSpec<R extends OperationResult> {
      * close together are sent in one HTTP call. Spec validation errors are thrown immediately.
      */
     public CompletableFuture<R> executeAsync() {
+        if (!failureActions.isEmpty()) {
+            return request().executeAsync();
+        }
         return worksheet.client().executeOneAsync(toOperation(), resultType());
+    }
+
+    /**
+     * Adds an action that runs if this operation fails when executed, fetched or queued; see
+     * {@link SheetRequest#onFailure}. Not used when the spec is added to a
+     * {@link io.github.prasunmondal.gridbase.Batch}; use {@code Batch.onFailure} there.
+     */
+    public OperationSpec<R> onFailure(Consumer<RequestFailure> action) {
+        failureActions.add(Objects.requireNonNull(action, "action"));
+        return this;
     }
 
     /** This operation as a not-yet-sent {@link SheetRequest} (validated now). */
     public SheetRequest<R> request() {
         Class<R> type = resultType();
-        return SheetRequest.of(worksheet.client(), Compat.listOf(toOperation()), r -> type.cast(r.results().get(0)));
+        return withFailureActions(SheetRequest.of(worksheet.client(), Compat.listOf(toOperation()),
+                r -> type.cast(r.results().get(0))));
+    }
+
+    /** {@code request} plus this spec's failure actions. */
+    protected <T> SheetRequest<T> withFailureActions(SheetRequest<T> request) {
+        SheetRequest<T> out = request;
+        for (Consumer<RequestFailure> action : failureActions) {
+            out = out.onFailure(action);
+        }
+        return out;
     }
 
     /** Adds this operation to {@code queue}; the result is available after {@code queue.execute()}. */

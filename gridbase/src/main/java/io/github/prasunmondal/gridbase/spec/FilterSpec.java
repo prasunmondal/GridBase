@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.spec;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.RequestFailure;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.query.Filter;
 import io.github.prasunmondal.gridbase.query.Sort;
@@ -11,6 +12,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Base for operations that select rows with {@code where / orderBy / limit / offset}.
@@ -31,6 +33,12 @@ public abstract class FilterSpec<S extends FilterSpec<S>> extends OperationSpec<
     @SuppressWarnings("unchecked")
     protected final S self() {
         return (S) this;
+    }
+
+    @Override
+    public S onFailure(Consumer<RequestFailure> action) {
+        super.onFailure(action);
+        return self();
     }
 
     @Override

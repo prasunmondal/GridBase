@@ -46,6 +46,10 @@ intent and invariants.
   `ServerException`), from `GridBase.remote`. A combined queue call rejected by the engine is not
   final (each request is re-sent alone), so it is not reported. An action that throws is logged and
   never replaces the request's exception.
+- Per-call `onFailure` (`SheetRequest`, `OperationSpec`, `Batch`) runs iff that call fails, at the
+  caller level (`execute` catch, async `whenComplete`, `APIRequestsQueue` failed handles), after the
+  client's actions. Request details come from `GridBase.failedRequests` (a weak map keyed by the
+  exception, filled by `remote`); without a match `requestId` is null and `attempts` 0.
 - Reading: empty cells become `null` in typed getters and entities. Dates are converted with the
   client's `timeZone` (see `wire-contract.md`).
 

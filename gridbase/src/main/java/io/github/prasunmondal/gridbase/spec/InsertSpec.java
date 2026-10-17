@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.spec;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.RequestFailure;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 
@@ -8,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * INSERT one or more rows, appended below the last used row in one write.
@@ -53,6 +55,12 @@ public final class InsertSpec extends OperationSpec<RowsResult> {
      */
     public InsertSpec optionalColumns(String... columns) {
         addOptionalColumns(columns);
+        return this;
+    }
+
+    @Override
+    public InsertSpec onFailure(Consumer<RequestFailure> action) {
+        super.onFailure(action);
         return this;
     }
 

@@ -62,7 +62,7 @@ implementation("com.github.prasunmondal.GridBase:gridbase-android:<tag>")
 
 ### Deploy the engine
 
-1. Create an Apps Script project and copy in the sources from `server-appscript/`
+1. Create an Apps Script project and copy in the sources from `appscript/`
    (or push them with `clasp`).
 2. **Deploy → New deployment → Web app**: *Execute as: Me*; *Who has access*: *Anyone* (or restricted,
    see [Restricted deployments](#call-a-restricted-deployment)).
@@ -553,6 +553,17 @@ batch.execute();
 open.get().rows();   // includes newOrder: later operations see earlier ones
 ```
 
+### Undo the UI if the batch fails
+
+```java
+db.batch()
+        .onFailure(f -> rollbackUi())   // runs only if execute() throws
+        ...
+        .execute();
+```
+
+Specs added to a batch use the batch's `onFailure`, not their own.
+
 The final write to the sheet takes several Sheets calls. An Apps Script timeout in the middle can
 leave a partial write, so a batch groups changes but is not a real database transaction.
 
@@ -606,6 +617,17 @@ if (!open.failed()) {
     show(open.get());
 }
 ```
+
+Or attach the reaction to the request itself; it runs only if that handle fails:
+
+```java
+Queued<List<Order>> open = Order.repository().requests().findWhere(eq("status", "OPEN"))
+        .onFailure(f -> showError("Could not load open orders"))
+        .queue(q);
+```
+
+If the engine rejects a combined call, the queue resends the requests one by one, so only the
+request that really failed reports a failure.
 
 ### Combine requests from code you don't control
 
@@ -761,6 +783,44 @@ try {
 ```
 
 Both extend `GridBaseException`. `e.isRetryable()` says whether trying again could help.
+
+### Report every failure in one place
+
+```java
+SheetProperties.builder()
+        ...
+        .onFailure(f -> crashReporter.log(
+                "GridBase " + f.requestId() + " failed after " + f.attempts() + " attempt(s) in "
+                        + f.elapsed().toMillis() + " ms", f.failure()))
+        .build();
+```
+
+It runs once per request that fails for good (after retries), for engine errors and transport errors
+alike, before the exception reaches your code. The exception is still thrown. If the action itself
+throws, that is logged and ignored. `f.readOnly()` tells reads from writes.
+
+### React to one call failing
+
+```java
+List<Row> ops = Employees.worksheet().select().where(eq("dept", "Ops"))
+        .onFailure(f -> showToast("Could not load Ops: " + f.failure().getMessage()))
+        .fetch();
+
+Employee.repository().requests().findAll()
+        .onFailure(f -> retryLater())
+        .executeAsync();
+```
+
+Works on every spec (`select()`, `insert(...)`, `update()`, ...) and every `SheetRequest`, and runs
+after the client's `onFailure`. `SheetRequest.onFailure` returns a new request and leaves the original
+unchanged. Repository shortcuts such as `findById(...)` have no per-call hook; go through
+`requests()`.
+
+| Failure | Client `onFailure` | Per-call `onFailure` |
+|---|---|---|
+| Engine error or network failure after retries | runs | runs |
+| `NETWORK_FIRST` read answered from a stale cached reply | runs | does not run (the call succeeded) |
+| Good reply, but mapping it to your class throws | does not run | runs, with `requestId()` `null` and `attempts()` 0 |
 
 ### Tune retries
 
@@ -962,7 +1022,7 @@ Use `CacheBackend.MEMORY` in tests to avoid files.
 The repository ships a Node emulator that runs the actual engine code against in-memory sheets:
 
 ```bash
-node gridbase/src/test/emulator/engine-emulator.js server-appscript   # listens on :8765
+node gridbase/src/test/emulator/engine-emulator.js appscript   # listens on :8765
 ```
 
 Point your client at `http://127.0.0.1:8765/macros/s/LOCAL/exec`.
@@ -982,5 +1042,6 @@ Point your client at `http://127.0.0.1:8765/macros/s/LOCAL/exec`.
 | `Worksheet already exists` | `create()` isn't idempotent | See [Create it only if missing](#create-it-only-if-missing) |
 | Lost rows with many concurrent writers | Old engine without locking | Redeploy the current engine (it locks writes) |
 | Filters on field names find nothing | Filters use **column headers** | `eq("Credit Limit", ...)`, not `eq("creditLimit", ...)` |
+| `findById(...).onFailure` doesn't compile | Repository shortcuts have no per-call hook | `requests().findById(...).onFailure(...).execute()` |
 | `NetworkOnMainThreadException` | Android main thread | Run on `Dispatchers.IO` / an executor |
 | Changes to the engine have no effect | Deployment not updated | Deploy a new version of the web app |
