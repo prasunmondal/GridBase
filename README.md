@@ -366,7 +366,7 @@ public class Employee {
 | `retryPolicy` | `RetryPolicy.defaults()` | See [Retries](#retries). |
 | `connectTimeout` / `requestTimeout` | 10 s / 90 s | |
 | `accessToken` | none | OAuth token supplier. |
-| `preNetworkCall` / `postNetworkCall` | none | Any number; see [Network hooks](#network-hooks). |
+| `preNetworkCall` / `postNetworkCall` / `onFailure` | none | Any number; see [Network hooks](#network-hooks). |
 | `shallCache`, `cacheStrategy`, `cacheExpiry`, `cacheFile`, `cacheBackend`, `cacheStore` | off, `CACHE_FIRST`, 10 min, `~/.gridbase/cache.db`, `AUTO`, none | See [Response cache](#response-cache). |
 | `clock` | system clock | Clock used to decide cache freshness; inject one in tests to control expiry. |
 | `queueRequests`, `queueMaxOperations` | off, 50 | See [Automatic request queue](#automatic-request-queue-time-window). For sending on demand, see [`APIRequestsQueue`](#request-queue-apirequestsqueue-send-when-you-say-so). |
@@ -445,6 +445,30 @@ SheetProperties.builder()
 - A retried request keeps its `requestId`; only `attempt()` changes.
 - Reads served from the cache make no network call, so the hooks do not run for them.
 - The same hooks are available on `GridBase.builder()` as `preNetworkCall` / `postNetworkCall`.
+
+### Failure hook
+
+`onFailure` runs **once per request that fails for good**: after the retry policy has given up, and
+for errors the engine reports (`ServerException`) as well as transport errors. Use it for crash
+reporting or alerting.
+
+```java
+SheetProperties.builder()
+        ...
+        .onFailure(f -> {
+            // RequestFailure: requestId(), requestBody(), readOnly(), attempts(), failure(), elapsed()
+            crashReporter.log("GridBase " + f.requestId() + " failed after " + f.attempts() + " attempt(s)",
+                    f.failure());
+        })
+        .build();
+```
+
+- It runs on the thread that sent the request (the async pool for `executeAsync`), before the
+  exception reaches your code. The exception is still thrown.
+- If the action throws, that exception is logged and ignored; the request's own exception is kept.
+- A `NETWORK_FIRST` read that falls back to a stale cached reply still triggers it, because the
+  network request did fail.
+- A queued window is sent as one request, so one failure triggers it once.
 
 ### Log every network call
 

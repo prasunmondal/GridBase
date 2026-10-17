@@ -67,6 +67,7 @@ public final class SheetProperties {
     private final Supplier<String> accessToken;
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
+    private final List<Consumer<RequestFailure>> failureActions;
     private final List<NetworkLogger> networkLoggers;
     private final boolean shallCache;
     private final CacheStrategy cacheStrategy;
@@ -116,6 +117,7 @@ public final class SheetProperties {
         this.accessToken = b.accessToken;
         this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
         this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
+        this.failureActions = Compat.copyOf(b.failureActions);
         this.networkLoggers = Compat.copyOf(b.networkLoggers);
         this.shallCache = b.shallCache;
         this.cacheStrategy = b.cacheStrategy;
@@ -151,6 +153,7 @@ public final class SheetProperties {
         b.accessToken = accessToken;
         b.preNetworkCallActions.addAll(preNetworkCallActions);
         b.postNetworkCallActions.addAll(postNetworkCallActions);
+        b.failureActions.addAll(failureActions);
         b.networkLoggers.addAll(networkLoggers);
         b.shallCache = shallCache;
         b.cacheStrategy = cacheStrategy;
@@ -220,6 +223,10 @@ public final class SheetProperties {
         return postNetworkCallActions;
     }
 
+    public List<Consumer<RequestFailure>> failureActions() {
+        return failureActions;
+    }
+
     public boolean shallCache() {
         return shallCache;
     }
@@ -280,6 +287,7 @@ public final class SheetProperties {
         }
         preNetworkCallActions.forEach(b::preNetworkCall);
         postNetworkCallActions.forEach(b::postNetworkCall);
+        failureActions.forEach(b::onFailure);
         b.cacheLoggers.addAll(networkLoggers);
         if (shallCache) {
             try {
@@ -315,6 +323,7 @@ public final class SheetProperties {
         private Supplier<String> accessToken;
         private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
         private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
+        private final List<Consumer<RequestFailure>> failureActions = new ArrayList<>();
         private final List<NetworkLogger> networkLoggers = new ArrayList<>();
         private boolean shallCache;
         private CacheStrategy cacheStrategy = CacheStrategy.CACHE_FIRST;
@@ -477,6 +486,15 @@ public final class SheetProperties {
         /** Runs after every HTTP attempt, whether it succeeded or failed, in registration order. */
         public Builder postNetworkCall(Consumer<NetworkCallResult> action) {
             this.postNetworkCallActions.add(Objects.requireNonNull(action));
+            return detached();
+        }
+
+        /**
+         * Runs once per request that fails for good (after retries), on the thread that sent it, in
+         * registration order. An exception thrown by the action is logged, not propagated.
+         */
+        public Builder onFailure(Consumer<RequestFailure> action) {
+            this.failureActions.add(Objects.requireNonNull(action));
             return detached();
         }
 

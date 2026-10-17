@@ -5,6 +5,7 @@ import io.github.prasunmondal.gridbase.cache.CacheBackend;
 import io.github.prasunmondal.gridbase.cache.CacheExpiry;
 import io.github.prasunmondal.gridbase.cache.CacheStrategy;
 import io.github.prasunmondal.gridbase.cache.InMemoryResponseCache;
+import io.github.prasunmondal.gridbase.exception.ServerException;
 import io.github.prasunmondal.gridbase.exception.TransportException;
 import io.github.prasunmondal.gridbase.mapping.SheetKey;
 import io.github.prasunmondal.gridbase.mapping.SheetTable;
@@ -101,6 +102,69 @@ class SheetPropertiesTest {
     }
 
     @Test
+    void onFailureRunsOnceAfterRetriesAreExhausted() {
+        TransportException boom = new TransportException("boom", 503, null, true);
+        FakeTransport t = new FakeTransport(req -> {
+            throw boom;
+        });
+        List<RequestFailure> failures = new ArrayList<>();
+        SheetProperties props = SheetProperties.builder()
+                .transport(t)
+                .dbSheetUrl("S")
+                .tabName("T")
+                .retryPolicy(RetryPolicy.of(3, Duration.ZERO))
+                .onFailure(failures::add)
+                .build();
+
+        assertSame(boom, assertThrows(TransportException.class, () -> props.worksheet().select().fetch()));
+
+        assertEquals(1, failures.size());
+        RequestFailure f = failures.get(0);
+        assertSame(boom, f.failure());
+        assertEquals(3, f.attempts());
+        assertTrue(f.readOnly());
+        assertEquals(3, t.requests.size());
+        assertEquals(t.requests.get(0).path("requestId").asText(), f.requestId());
+    }
+
+    @Test
+    void onFailureSeesEngineErrorsAndNotSuccesses() {
+        boolean[] fail = {true};
+        FakeTransport t = new FakeTransport(req -> fail[0]
+                ? "{\"success\":false,\"error\":\"Unknown column\",\"exceptionType\":\"Error\",\"stackTrace\":[]}"
+                : FakeTransport.replying("\"rowCount\":0,\"rows\":[]").send(req.toString()));
+        List<RequestFailure> failures = new ArrayList<>();
+        SheetProperties props = SheetProperties.builder()
+                .transport(t).dbSheetUrl("S").tabName("T").onFailure(failures::add).build();
+
+        assertThrows(ServerException.class, () -> props.worksheet().select().fetch());
+        fail[0] = false;
+        props.worksheet().select().fetch();
+
+        assertEquals(1, failures.size());
+        assertTrue(failures.get(0).failure() instanceof ServerException);
+    }
+
+    @Test
+    void throwingFailureActionDoesNotReplaceTheRequestException() {
+        TransportException boom = new TransportException("boom", 500, null, false);
+        List<String> events = new ArrayList<>();
+        SheetProperties props = SheetProperties.builder()
+                .transport(new FakeTransport(req -> {
+                    throw boom;
+                }))
+                .dbSheetUrl("S").tabName("T")
+                .onFailure(f -> {
+                    throw new IllegalStateException("hook bug");
+                })
+                .onFailure(f -> events.add("second"))
+                .build();
+
+        assertSame(boom, assertThrows(TransportException.class, () -> props.worksheet().select().fetch()));
+        assertEquals(List.of("second"), events);
+    }
+
+    @Test
     void toBuilderDerivesWithoutChangingBase() {
         SheetProperties base = SheetProperties.builder().scriptUrl("https://x/exec").dbSheetUrl("S").build();
         SheetProperties derived = base.toBuilder().tabName("T").preNetworkCall(c -> { }).build();
@@ -144,6 +208,7 @@ class SheetPropertiesTest {
         setters.put("accessToken", b -> b.accessToken(() -> "t"));
         setters.put("preNetworkCall", b -> b.preNetworkCall(c -> { }));
         setters.put("postNetworkCall", b -> b.postNetworkCall(r -> { }));
+        setters.put("onFailure", b -> b.onFailure(f -> { }));
         setters.put("logNetworkCalls", b -> b.logNetworkCalls(NetworkLogger.defaults()));
 
         GridBase shared = base.client();

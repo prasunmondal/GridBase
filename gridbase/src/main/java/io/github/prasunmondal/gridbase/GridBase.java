@@ -47,6 +47,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -90,6 +91,7 @@ public final class GridBase {
     private final ResponseParser parser;
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
+    private final List<Consumer<RequestFailure>> failureActions;
     private final List<NetworkLogger> cacheLoggers;
     private final ResponseCache cache;
     private final CacheStrategy cacheStrategy;
@@ -110,6 +112,7 @@ public final class GridBase {
         this.clock = b.clock;
         this.preNetworkCallActions = Compat.copyOf(b.preNetworkCallActions);
         this.postNetworkCallActions = Compat.copyOf(b.postNetworkCallActions);
+        this.failureActions = Compat.copyOf(b.failureActions);
         this.cacheLoggers = Compat.copyOf(b.cacheLoggers);
         this.mapper = Json.mapper(b.objectMapper, b.zone);
         this.defaultSpreadsheetId = b.defaultSpreadsheetId;
@@ -370,7 +373,9 @@ public final class GridBase {
         requests.forEach(all::addAll);
         Reply combined;
         try {
-            combined = remote(all, isReadOnly(all));
+            // a non-retryable engine rejection is not final: each request is re-sent alone below
+            combined = remote(all, isReadOnly(all),
+                    e -> !(e instanceof ServerException se) || se.isRetryable());
         } catch (ServerException e) {
             if (e.isRetryable()) {
                 return requests.stream().map(r -> new Outcome<Reply>(null, e)).collect(Compat.toList());
@@ -547,25 +552,52 @@ public final class GridBase {
     }
 
     private Reply remote(List<Operation> operations, boolean readOnly) {
+        return remote(operations, readOnly, e -> true);
+    }
+
+    /** {@code isFinal} decides whether a failure is reported to the failure actions. */
+    private Reply remote(List<Operation> operations, boolean readOnly, Predicate<RuntimeException> isFinal) {
         String requestId = UUID.randomUUID().toString();
         String body = serializer.serialize(requestId, operations);
+        long start = System.nanoTime();
+        int attempt = 1;
 
-        for (int attempt = 1; ; attempt++) {
-            try {
-                LOG.debug(() -> "gridbase request " + requestId + ": " + body);
-                String reply = send(new NetworkCall(requestId, body, attempt));
-                LOG.trace(() -> "gridbase reply " + requestId + ": " + reply);
-                return new Reply(reply, parser.parse(reply, operations));
-            } catch (GridBaseException e) {
-                if (!retryPolicy.shouldRetry(e, attempt, readOnly)) {
-                    throw e;
+        try {
+            for (; ; attempt++) {
+                try {
+                    LOG.debug(() -> "gridbase request " + requestId + ": " + body);
+                    String reply = send(new NetworkCall(requestId, body, attempt));
+                    LOG.trace(() -> "gridbase reply " + requestId + ": " + reply);
+                    return new Reply(reply, parser.parse(reply, operations));
+                } catch (GridBaseException e) {
+                    if (!retryPolicy.shouldRetry(e, attempt, readOnly)) {
+                        throw e;
+                    }
+                    Duration delay = retryPolicy.delayAfter(attempt);
+                    int failedAttempt = attempt;
+                    LOG.warning(() -> "gridbase request " + requestId
+                            + " failed (attempt " + failedAttempt + "), retrying in " + delay.toMillis() + " ms: "
+                            + e.getMessage());
+                    sleep(delay);
                 }
-                Duration delay = retryPolicy.delayAfter(attempt);
-                int failedAttempt = attempt;
-                LOG.warning(() -> "gridbase request " + requestId
-                        + " failed (attempt " + failedAttempt + "), retrying in " + delay.toMillis() + " ms: "
-                        + e.getMessage());
-                sleep(delay);
+            }
+        } catch (RuntimeException e) {
+            if (isFinal.test(e)) {
+                notifyFailure(new RequestFailure(requestId, body, readOnly, attempt, e,
+                        Duration.ofNanos(System.nanoTime() - start)));
+            }
+            throw e;
+        }
+    }
+
+    /** A failing failure action is logged and never replaces the request's own exception. */
+    private void notifyFailure(RequestFailure failure) {
+        for (Consumer<RequestFailure> action : failureActions) {
+            try {
+                action.accept(failure);
+            } catch (RuntimeException hookError) {
+                LOG.warning(() -> "gridbase failure action threw for request " + failure.requestId() + ": "
+                        + hookError);
             }
         }
     }
@@ -630,6 +662,7 @@ public final class GridBase {
         private Supplier<String> accessToken;
         private final List<Consumer<NetworkCall>> preNetworkCallActions = new ArrayList<>();
         private final List<Consumer<NetworkCallResult>> postNetworkCallActions = new ArrayList<>();
+        private final List<Consumer<RequestFailure>> failureActions = new ArrayList<>();
         final List<NetworkLogger> cacheLoggers = new ArrayList<>();
         private ResponseCache cache;
         private CacheStrategy cacheStrategy;
@@ -734,6 +767,15 @@ public final class GridBase {
         /** Runs after every HTTP attempt, whether it succeeded or failed, in registration order. */
         public Builder postNetworkCall(Consumer<NetworkCallResult> action) {
             this.postNetworkCallActions.add(Objects.requireNonNull(action));
+            return this;
+        }
+
+        /**
+         * Runs once per request that fails for good (after retries), on the thread that sent it, in
+         * registration order. An exception thrown by the action is logged, not propagated.
+         */
+        public Builder onFailure(Consumer<RequestFailure> action) {
+            this.failureActions.add(Objects.requireNonNull(action));
             return this;
         }
 

@@ -1,0 +1,15 @@
+package io.github.prasunmondal.gridbase;
+
+import java.time.Duration;
+
+/**
+ * A request that failed for good, after any retries; passed to failure actions. The failure is a
+ * transport error or an error reported by the engine.
+ *
+ * @param readOnly whether the request contained only reads
+ * @param attempts number of HTTP attempts made, retries included
+ * @param elapsed  time from the first attempt to the final failure, retry delays included
+ */
+public record RequestFailure(String requestId, String requestBody, boolean readOnly, int attempts,
+                             RuntimeException failure, Duration elapsed) {
+}

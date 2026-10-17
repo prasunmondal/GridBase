@@ -149,6 +149,24 @@ class APIRequestsQueueTest {
     }
 
     @Test
+    void rejectedCombinedCallReportsOnlyTheFaultyRequestToOnFailure() {
+        FakeTransport t = new FakeTransport(req -> worksheets(req).contains("Missing")
+                ? "{\"success\":false,\"errors\":[{\"message\":\"Worksheet not found: Missing\"}]}"
+                : echo(req));
+        List<RequestFailure> failures = new ArrayList<>();
+        GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").retryPolicy(RetryPolicy.none())
+                .onFailure(failures::add).build();
+
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        db.worksheet("A").select().queue(reqQ);
+        db.worksheet("Missing").select().queue(reqQ);
+        assertThrows(QueueExecutionException.class, reqQ::execute);
+
+        assertEquals(1, failures.size());
+        assertEquals(t.requests.get(2).path("requestId").asText(), failures.get(0).requestId());
+    }
+
+    @Test
     void transportFailureFailsEveryRequestInTheCall() {
         FakeTransport t = new FakeTransport(req -> {
             throw new TransportException("connection reset", 0, null, true);

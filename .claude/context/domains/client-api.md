@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-12
+last_verified: 2026-10-17
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/SheetProperties.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/Worksheet.java
@@ -42,6 +42,10 @@ intent and invariants.
   unless a setting other than `tabName` changes. Every other builder setter calls `detached()`, and a
   new setter must do the same.
 - Pre/post network-call actions run around every HTTP **attempt**. They do not fire on cache hits.
+- `onFailure` actions run once per **request** that fails for good (after retries; transport or
+  `ServerException`), from `GridBase.remote`. A combined queue call rejected by the engine is not
+  final (each request is re-sent alone), so it is not reported. An action that throws is logged and
+  never replaces the request's exception.
 - Reading: empty cells become `null` in typed getters and entities. Dates are converted with the
   client's `timeZone` (see `wire-contract.md`).
 
