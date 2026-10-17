@@ -1,4 +1,4 @@
-package io.github.prasunmondal.gridbase.integrationTests;
+package io.github.prasunmondal.gridbase.stressTests;
 
 import io.github.prasunmondal.gridbase.Batch;
 import io.github.prasunmondal.gridbase.GridBase;
@@ -6,6 +6,9 @@ import io.github.prasunmondal.gridbase.RetryPolicy;
 import io.github.prasunmondal.gridbase.SheetProperties;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.exception.ServerException;
+import io.github.prasunmondal.gridbase.integrationTests.Employee;
+import io.github.prasunmondal.gridbase.integrationTests.ItConfig;
+import io.github.prasunmondal.gridbase.integrationTests.TestData;
 import io.github.prasunmondal.gridbase.mapping.Repository;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
