@@ -79,6 +79,10 @@ class RequestValidator {
                 this.validateClone(operation, index);
                 break;
 
+            case OperationType.REPLACE_ALL_DATA:
+                this.validateSave(operation, index);
+                break;
+
             case OperationType.CREATE_WORKSHEET:
                 this.validateCreateWorksheet(operation, index);
                 break;
@@ -281,6 +285,23 @@ class RequestValidator {
         // throw new Error(
         //     "CLONE is not implemented."
         // );
+
+    }
+
+    static validateSave(operation,
+                        index) {
+
+        this.require(
+            operation.getSpreadsheetId(),
+            "Operation " + index +
+            " must specify a spreadsheet."
+        );
+
+        this.require(
+            operation.getWorksheet(),
+            "Operation " + index +
+            " must specify a worksheet."
+        );
 
     }
 

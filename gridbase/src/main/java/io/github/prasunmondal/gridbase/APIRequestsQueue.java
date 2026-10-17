@@ -31,8 +31,8 @@ import java.util.Map;
  *   <li>Each request succeeds or fails on its own: if the engine rejects the combined call, each request
  *       is re-sent alone so only the faulty one fails. A request made of several operations (e.g.
  *       {@code upsertAll}) stays all-or-nothing.</li>
- *   <li>{@code create}, {@code clear} and {@code addColumns} (including the repository's {@code save},
- *       {@code saveAll} and {@code deleteAll}, which clear) are sent in a call of their own (in order),
+ *   <li>{@code create}, {@code clear} and {@code addColumns} (including the repository's
+ *       {@code deleteAll}, which clears) are sent in a call of their own (in order),
  *       as are requests larger than {@code maxOperationsPerCall}.</li>
  * </ul>
  *

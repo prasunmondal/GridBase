@@ -401,11 +401,12 @@ orders.cloneRows()
 ### Replace a whole sheet's contents
 
 ```java
-Customer.repository().saveAll(freshList);   // clears the rows (header kept), then inserts freshList
+Customer.repository().replaceAllData(freshList);   // replaces the rows (header kept) with freshList
 ```
 
-This is **not atomic**: if the insert fails, the sheet stays empty. For important data, upsert
-instead (`upsertAll`), or keep a backup sheet.
+One `REPLACE_ALL_DATA` operation clears and inserts in one step: if it fails (e.g. an unknown
+column), the sheet is left as it was. It needs an engine deployed with `REPLACE_ALL_DATA`; an older
+one rejects it (*Unsupported operation type*).
 
 ---
 
@@ -462,7 +463,7 @@ customers.upsertAll(changed);         // one request, all-or-nothing
 |---|---|
 | Add rows, duplicates OK | `insert` / `insertAll` |
 | Create or update by key | `upsert` / `upsertAll` |
-| Sheet should contain exactly this list | `save` / `saveAll` (not atomic, see [above](#replace-a-whole-sheets-contents)) |
+| Sheet should contain exactly this list | `replaceAllData` (all-or-nothing, see [above](#replace-a-whole-sheets-contents)) |
 | Remove everything | `deleteAll()` |
 
 The engine does not enforce key uniqueness. Use `upsert` if duplicate keys would be a problem.
@@ -976,7 +977,7 @@ Point your client at `http://127.0.0.1:8765/macros/s/LOCAL/exec`.
 | Dates are one day off | Client time zone is UTC | `.timeZone(<spreadsheet zone>)` |
 | Upserted row has a blank key | Key given only in `where` | Use `.key(column, value)` |
 | Update/delete throws about missing `where` | Safety check | Add `where(...)` or call `.all()` |
-| Sheet empty after `saveAll` failed | `save*` clears first, not atomic | Use `upsertAll`, or validate before saving |
+| *Unsupported operation type: REPLACE_ALL_DATA* | Engine deployed before `REPLACE_ALL_DATA` existed | Redeploy the engine |
 | Old data after editing the sheet by hand | Cache only knows its own writes | `worksheet.clearCache()`, shorter expiry or `forceRefresh()` |
 | `Worksheet already exists` | `create()` isn't idempotent | See [Create it only if missing](#create-it-only-if-missing) |
 | Lost rows with many concurrent writers | Old engine without locking | Redeploy the current engine (it locks writes) |

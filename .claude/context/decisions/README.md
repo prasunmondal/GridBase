@@ -33,6 +33,8 @@ confirm their rationale once.
 | [013](ADR-013-last-updated-from-drive.md) | Spreadsheet last-updated time comes from Drive metadata, never cached | Superseded by ADR-014 |
 | [014](ADR-014-drive-opt-in.md) | Drive access for `lastUpdated()` is opt-in per deployment; the shipped manifest needs only Sheets | Accepted |
 | [015](ADR-015-engine-short-lock-batched-io.md) | Engine holds the lock briefly, flushes before releasing it, and batches sheet I/O | Accepted |
+| [016](ADR-016-staged-clear-worksheet.md) | CLEAR_WORKSHEET is staged and committed with the request's row changes | Superseded by ADR-017 |
+| [017](ADR-017-replace-all-data-operation.md) | `REPLACE_ALL_DATA` operation replaces a worksheet's rows in one all-or-nothing step | Accepted |
 
 ## Template (`ADR-NNN-kebab-title.md`, keep it under about 60 lines)
 ```markdown

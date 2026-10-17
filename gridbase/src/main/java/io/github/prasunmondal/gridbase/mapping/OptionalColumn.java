@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 
 /**
  * Marks a property whose column may be missing from the sheet. When an entity is written (insert, upsert,
- * update, save, clone), the value of this property is dropped if the worksheet has no such column,
+ * update, replaceAllData, clone), the value of this property is dropped if the worksheet has no such column,
  * instead of the engine failing with "Unknown column". When the column exists it is written as usual.
  *
  * <p>Only writes are affected; filters, sorting and {@code select(...)} on the column still require it.

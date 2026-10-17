@@ -37,7 +37,7 @@ import java.util.Optional;
  *
  * Repository<Customer> customers = db.repository(Customer.class);
  * customers.upsert(c);                             // update the row with c's customer_id, or insert it
- * customers.saveAll(list);                         // replace every row in the sheet with list
+ * customers.replaceAllData(list);                  // replace every row in the sheet with list
  * Optional<Customer> c = customers.findById("C-42");
  * }</pre>
  */
@@ -125,20 +125,19 @@ public final class Repository<T> {
     }
 
     /**
-     * Replaces the worksheet's contents with {@code entity}: deletes every data row, then inserts it.
-     * Not atomic — see {@link Requests#saveAll}.
+     * Replaces the worksheet's contents with {@code entity} (header kept), in one all-or-nothing step.
+     * See {@link Requests#replaceAllData(Collection)}.
      */
-    public T save(T entity) {
-        return requests.save(entity).execute();
+    public T replaceAllData(T entity) {
+        return requests.replaceAllData(entity).execute();
     }
 
     /**
-     * Replaces the worksheet's contents with {@code entities}: deletes every data row (header kept), then
-     * inserts them, in one request. An empty collection just clears the sheet. Not atomic — see
-     * {@link Requests#saveAll}.
+     * Replaces the worksheet's contents with {@code entities} (header kept), in one all-or-nothing step.
+     * An empty collection just clears the sheet. See {@link Requests#replaceAllData(Collection)}.
      */
-    public List<T> saveAll(Collection<? extends T> entities) {
-        return requests.saveAll(entities).execute();
+    public List<T> replaceAllData(Collection<? extends T> entities) {
+        return requests.replaceAllData(entities).execute();
     }
 
     /** @return number of rows deleted */
@@ -223,24 +222,18 @@ public final class Repository<T> {
             });
         }
 
-        public SheetRequest<T> save(T entity) {
+        public SheetRequest<T> replaceAllData(T entity) {
             Objects.requireNonNull(entity, "entity");
-            return saveAll(Compat.listOf(entity)).map(saved -> saved.get(0));
+            return replaceAllData(Compat.listOf(entity)).map(saved -> saved.get(0));
         }
 
         /**
-         * CLEAR_WORKSHEET followed by INSERT, in one engine request. CLEAR is a schema op: the engine
-         * applies it immediately, not at commit, so if the insert fails (e.g. an unknown column) the sheet
-         * is left empty. For the same reason the request is always sent on its own by both request queues.
+         * One REPLACE_ALL_DATA operation: the engine clears the data rows and inserts {@code entities} at
+         * commit, so if it fails (e.g. an unknown column) the sheet is left as it was. An empty collection
+         * clears the sheet.
          */
-        public SheetRequest<List<T>> saveAll(Collection<? extends T> entities) {
-            Operation clear = worksheet.clear().toOperation();
-            if (entities.isEmpty()) {
-                return SheetRequest.of(client, Compat.listOf(clear), response -> Compat.listOf());
-            }
-            Operation insert = worksheet.insertAll(entities).toOperation();
-            return SheetRequest.of(client, Compat.listOf(clear, insert),
-                    response -> ((RowsResult) response.results().get(1)).as(type));
+        public SheetRequest<List<T>> replaceAllData(Collection<? extends T> entities) {
+            return worksheet.replaceAllData(entities).request().map(result -> result.as(type));
         }
 
         /** Resolves to the number of rows deleted. */

@@ -120,7 +120,8 @@ public final class ResponseParser {
             case UPDATE:
             case DELETE:
             case UPSERT:
-            case CLONE: {
+            case CLONE:
+            case REPLACE_ALL_DATA: {
                 List<Row> rows = new ArrayList<>();
                 for (JsonNode r : node.path("rows")) {
                     rows.add(new Row(mapper.convertValue(r, ROW_TYPE), mapper, zone));
