@@ -84,6 +84,27 @@ class ExecutionEngine {
 
                 break;
 
+            //
+            // Clear and insert as one row operation: the rows
+            // are dropped in memory, and the commit clears the
+            // sheet and appends the new rows. If anything in the
+            // request fails, the sheet is left as it was.
+            //
+            case OperationType.SAVE:
+
+                worksheetData.clearRows();
+
+                result =
+                    compiledPlan.getRows().length > 0
+                        ? this.insertExecutor.execute(
+                            context,
+                            worksheetData,
+                            compiledPlan
+                        )
+                        : new ExecutionResult();
+
+                break;
+
             case OperationType.UPDATE:
 
                 result =

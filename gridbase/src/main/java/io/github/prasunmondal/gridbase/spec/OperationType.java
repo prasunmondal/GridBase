@@ -8,6 +8,7 @@ public enum OperationType {
     DELETE,
     UPSERT,
     CLONE,
+    SAVE,
     CREATE_WORKSHEET,
     CLEAR_WORKSHEET,
     GET_COLUMNS,
@@ -36,6 +37,7 @@ public enum OperationType {
             case DELETE:
             case UPSERT:
             case CLONE:
+            case SAVE:
                 return true;
             default:
                 return false;

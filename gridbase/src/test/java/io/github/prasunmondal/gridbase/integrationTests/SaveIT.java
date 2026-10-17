@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Repository {@code save} / {@code saveAll}: CLEAR_WORKSHEET then INSERT in one request, so the worksheet
+ * Repository {@code save} / {@code saveAll}: one SAVE operation (clear and insert in one step), so the worksheet
  * ends up holding exactly the given entities (header row kept).
  */
 class SaveIT {
@@ -196,7 +196,7 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("APIRequestsQueue: saveAll() goes out alone, between the reads queued around it")
+    @DisplayName("APIRequestsQueue: saveAll() runs in order between the reads queued around it")
     void saveAllInQueue() {
         APIRequestsQueue reqQ = new APIRequestsQueue();
         Queued<List<Department>> before = departments.requests().findAll().queue(reqQ);
@@ -233,7 +233,7 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("an unknown column fails save() and leaves the sheet untouched (the clear is not committed)")
+    @DisplayName("an unknown column fails save() and leaves the sheet untouched (SAVE is all-or-nothing)")
     void unknownColumnLeavesSheetUntouched() {
         EmployeeWithUnknownColumn e = new EmployeeWithUnknownColumn();
         e.id = "E201";

@@ -69,9 +69,8 @@ class RepositoryTest {
     }
 
     @Test
-    void saveAllClearsThenInsertsInOneRequest() {
+    void saveAllSendsOneSaveOperation() {
         FakeTransport t = FakeTransport.replying(
-                "\"worksheet\":\"Customers\",\"rowsCleared\":5,\"columnsCleared\":3",
                 "\"rowCount\":2,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"A\"},{\"customer_id\":\"C2\",\"name\":\"B\"}]");
         GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
 
@@ -80,38 +79,37 @@ class RepositoryTest {
 
         assertEquals(1, t.requests.size());
         var ops = t.requests.get(0).path("operations");
-        assertEquals(2, ops.size());
-        assertEquals("CLEAR_WORKSHEET", ops.get(0).path("type").asText());
-        assertEquals("INSERT", ops.get(1).path("type").asText());
-        assertEquals("Customers", ops.get(1).path("worksheet").asText());
-        assertEquals(2, ops.get(1).path("rows").size());
+        assertEquals(1, ops.size());
+        assertEquals("SAVE", ops.get(0).path("type").asText());
+        assertEquals("Customers", ops.get(0).path("worksheet").asText());
+        assertEquals(2, ops.get(0).path("rows").size());
         assertEquals(List.of("C1", "C2"), List.of(saved.get(0).id, saved.get(1).id));
     }
 
     @Test
     void saveReplacesSheetWithOneEntity() {
         FakeTransport t = FakeTransport.replying(
-                "\"worksheet\":\"Customers\",\"rowsCleared\":5,\"columnsCleared\":3",
                 "\"rowCount\":1,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"Asha\",\"creditLimit\":500}]");
         GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
 
         Customer saved = db.repository(Customer.class).save(new Customer("C1", "Asha", 500));
 
         var ops = t.requests.get(0).path("operations");
-        assertEquals("CLEAR_WORKSHEET", ops.get(0).path("type").asText());
-        assertEquals("INSERT", ops.get(1).path("type").asText());
+        assertEquals(1, ops.size());
+        assertEquals("SAVE", ops.get(0).path("type").asText());
         assertEquals(500, saved.creditLimit.intValue());
     }
 
     @Test
-    void saveAllOfNothingOnlyClears() {
-        FakeTransport t = FakeTransport.replying("\"worksheet\":\"Customers\",\"rowsCleared\":5,\"columnsCleared\":3");
+    void saveAllOfNothingSendsSaveWithoutRows() {
+        FakeTransport t = FakeTransport.replying("\"rowCount\":0,\"rows\":[]");
         GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
 
         assertTrue(db.repository(Customer.class).saveAll(List.of()).isEmpty());
 
         assertEquals(1, t.requests.get(0).path("operations").size());
-        assertEquals("CLEAR_WORKSHEET", t.lastOperation().path("type").asText());
+        assertEquals("SAVE", t.lastOperation().path("type").asText());
+        assertFalse(t.lastOperation().has("rows"));
     }
 
     @Test

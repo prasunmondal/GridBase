@@ -4,6 +4,7 @@ import io.github.prasunmondal.gridbase.internal.Compat;
 import io.github.prasunmondal.gridbase.spec.CloneSpec;
 import io.github.prasunmondal.gridbase.spec.DeleteSpec;
 import io.github.prasunmondal.gridbase.spec.InsertSpec;
+import io.github.prasunmondal.gridbase.spec.SaveSpec;
 import io.github.prasunmondal.gridbase.spec.SchemaSpecs;
 import io.github.prasunmondal.gridbase.spec.SelectSpec;
 import io.github.prasunmondal.gridbase.spec.UpdateSpec;
@@ -70,6 +71,14 @@ public final class Worksheet {
     /** INSERT many rows in a single sheet write. */
     public InsertSpec insertAll(Collection<?> rows) {
         return new InsertSpec(this).rows(rows);
+    }
+
+    /**
+     * SAVE: replaces every data row with {@code rows} (header kept), in one step. If the request fails,
+     * the sheet is left as it was. An empty collection clears the sheet.
+     */
+    public SaveSpec save(Collection<?> rows) {
+        return new SaveSpec(this).rows(rows);
     }
 
     public UpdateSpec update() {

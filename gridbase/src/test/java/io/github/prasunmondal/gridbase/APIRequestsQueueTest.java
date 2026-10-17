@@ -183,6 +183,22 @@ class APIRequestsQueueTest {
     }
 
     @Test
+    void saveIsCombinedWithOtherRequests() {
+        FakeTransport t = new FakeTransport(APIRequestsQueueTest::engineLike);
+        GridBase db = client(t);
+        Repository<Echo> repo = new Repository<>(db, Echo.class);
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        db.worksheet("A").select().queue(reqQ);
+        Queued<List<Echo>> saved = repo.requests().saveAll(List.of(echoEntity("k1"), echoEntity("k2"))).queue(reqQ);
+        db.worksheet("C").select().queue(reqQ);
+        reqQ.execute();
+
+        assertEquals(1, t.requests.size());
+        assertEquals(List.of("SELECT", "SAVE", "SELECT"), types(t.requests.get(0)));
+        assertEquals(List.of("k1", "k2"), saved.get().stream().map(e -> e.sheet).collect(java.util.stream.Collectors.toList()));
+    }
+
+    @Test
     void maxOperationsPerCallSplitsInOrder() {
         FakeTransport t = new FakeTransport(APIRequestsQueueTest::echo);
         GridBase db = client(t);
@@ -491,7 +507,7 @@ class APIRequestsQueueTest {
             JsonNode op = ops.get(i);
             sb.append(i == 0 ? "" : ",").append("{\"operationId\":\"").append(op.path("id").asText()).append("\",");
             switch (op.path("type").asText()) {
-                case "INSERT" -> sb.append("\"rowCount\":").append(op.path("rows").size())
+                case "INSERT", "SAVE" -> sb.append("\"rowCount\":").append(op.path("rows").size())
                         .append(",\"rows\":").append(op.path("rows")).append('}');
                 case "UPSERT" -> sb.append("\"rowCount\":1,\"rows\":[").append(op.path("values")).append("]}");
                 case "DELETE" -> sb.append("\"rowCount\":1,\"rows\":[{\"sheet\":\"gone\"}]}");

@@ -229,18 +229,11 @@ public final class Repository<T> {
         }
 
         /**
-         * CLEAR_WORKSHEET followed by INSERT, in one engine request. CLEAR is a schema op: the engine
-         * applies it immediately, not at commit, so if the insert fails (e.g. an unknown column) the sheet
-         * is left empty. For the same reason the request is always sent on its own by both request queues.
+         * One SAVE operation: the engine clears the data rows and inserts {@code entities} at commit, so if
+         * it fails (e.g. an unknown column) the sheet is left as it was. An empty collection clears the sheet.
          */
         public SheetRequest<List<T>> saveAll(Collection<? extends T> entities) {
-            Operation clear = worksheet.clear().toOperation();
-            if (entities.isEmpty()) {
-                return SheetRequest.of(client, Compat.listOf(clear), response -> Compat.listOf());
-            }
-            Operation insert = worksheet.insertAll(entities).toOperation();
-            return SheetRequest.of(client, Compat.listOf(clear, insert),
-                    response -> ((RowsResult) response.results().get(1)).as(type));
+            return worksheet.save(entities).request().map(result -> result.as(type));
         }
 
         /** Resolves to the number of rows deleted. */

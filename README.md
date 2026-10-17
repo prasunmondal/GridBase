@@ -198,6 +198,7 @@ db.worksheet("Archive").create().execute();
 orders.addColumns("discount", "notes").skipExisting().execute();
 List<String> headers = orders.columns().fetch();
 orders.clear().execute();                      // keeps the header row
+orders.save(listOfOrders).execute();           // SAVE: replace every data row, all-or-nothing
 ```
 
 ### Rows and types
@@ -276,13 +277,12 @@ customers.deleteById("C-42");
 |---|---|---|
 | `insert` / `insertAll` | one `INSERT` | kept; duplicate keys are possible |
 | `upsert` / `upsertAll` | one `UPSERT` per entity, keyed on `@SheetKey` (key must be non-null) | row with the same key is updated, others kept |
-| `save` / `saveAll` | `CLEAR_WORKSHEET` then `INSERT`, in one request | all deleted (header kept) |
+| `save` / `saveAll` | one `SAVE` (clear and insert in one step) | all deleted (header kept) |
 
-`save` / `saveAll` are **all-or-nothing**: the engine stages `CLEAR_WORKSHEET` like a row operation
-and commits it together with the `INSERT`, so if the insert fails (e.g. an unknown column) the sheet
-is left as it was. Engines deployed before this fix clear immediately and leave the sheet empty on
-such a failure: redeploy (see [Engine issues](#engine-issues)). Request queues always send them in a
-call of their own.
+`save` / `saveAll` are **all-or-nothing**: `SAVE` is a row operation, so the engine clears the
+sheet and writes the new rows in the same commit. If it fails (e.g. an unknown column) the sheet is
+left as it was. `SAVE` needs an engine deployed with it; an older one rejects it with *Unsupported
+operation type: SAVE*, so redeploy the engine.
 
 Records work too (`public record Product(@SheetKey String sku, String title) {}`). Column names follow
 Jackson property names; use `@JsonProperty("Header Text")` and `@JsonIgnore` as usual. The engine does
@@ -729,8 +729,8 @@ reqQ.execute();
   written nothing; each request is then re-sent alone so only the faulty one fails. A network
   failure fails every request in that call. A request made of several row operations (`upsertAll`) stays
   all-or-nothing.
-- **Split only when needed:** `create`, `clear` and `addColumns` (so also repository `save`,
-  `saveAll` and `deleteAll`) go in a call of their own (the engine
+- **Split only when needed:** `create`, `clear` and `addColumns` (so also repository `deleteAll`)
+  go in a call of their own (the engine
   applies them immediately, so they can't be safely re-sent), and a call holds at most 100 operations
   (`new APIRequestsQueue(maxOperationsPerCall)`). Order is kept across the split.
 - **Errors.** After every handle is completed, `execute()` throws `QueueExecutionException` if any
@@ -880,7 +880,7 @@ These are in the Apps Script engine (`appscript/`), not the SDK.
 | **The lock was released before the writes reached the sheet.** Apps Script sends buffered writes when the script ends, so the next writer could still read the old last row and overwrite rows just appended. | `SpreadsheetApp.flush()` runs before `releaseLock()`, on failures too. The response is built after the lock is released. | `InsertIT.concurrentInsertsAllLand` (the race needs a live deployment) |
 | **An insert past the sheet's last grid row failed** (*The coordinates of the range are outside the dimensions of the sheet*), e.g. the 1000th row of a new tab. | `WorksheetCommitter` adds the missing rows (`insertRowsAfter`) before appending. | `SchemaOperationsIT.insertPastGridGrowsWorksheet` |
 | **UPDATE rewrote the whole row.** Cells in columns it did not change were written back as values, so formulas became static values and text such as `00042` became the number 42. | Only the span of changed columns is written. | — (needs a formula or plain-text cell, which the SDK cannot create) |
-| **A failed `save` left the sheet empty.** `CLEAR_WORKSHEET` cleared the sheet at once, so an `INSERT` failing later in the request (e.g. *Unknown column*) left no rows. | `CLEAR_WORKSHEET` drops the in-memory rows and the commit clears the sheet, together with the request's other row changes. If any operation fails, nothing is written. | `SaveIT.unknownColumnLeavesSheetUntouched` |
+| **A failed `save` left the sheet empty.** The SDK sent `CLEAR_WORKSHEET` then `INSERT`; the clear applied at once, so an insert failing (e.g. *Unknown column*) left no rows. | New `SAVE` operation: clear and insert in one step, written at commit like other row operations. If anything fails, nothing is written. | `SaveIT.unknownColumnLeavesSheetUntouched` |
 
 Notes on the lock:
 

@@ -323,6 +323,21 @@ class RequestContractTest {
     }
 
     @Test
+    void saveSendsRowsLikeInsert() {
+        db.worksheet("T").save(List.of(contact(), Map.of("id", "m1"))).execute();
+        var op = transport.lastOperation();
+        assertEquals("SAVE", op.path("type").asText());
+        assertEquals("T", op.path("worksheet").asText());
+        assertEquals(json("[{\"id\":\"C-1\",\"name\":\"Asha\",\"Phone No\":\"123\"},{\"id\":\"m1\"}]"),
+                op.path("rows"));
+        assertEquals(json("[\"Phone No\"]"), op.path("optionalColumns"));
+
+        db.worksheet("T").save(List.of()).execute();
+        assertEquals(json("{\"id\":\"op-1\",\"type\":\"SAVE\",\"spreadsheetId\":\"SHEET\",\"worksheet\":\"T\"}"),
+                transport.lastOperation());
+    }
+
+    @Test
     void invalidSpecsAreRejected() {
         var ws = db.worksheet("T");
         assertThrows(IllegalArgumentException.class, () -> ws.update().set("a", 1).set("a", 2));

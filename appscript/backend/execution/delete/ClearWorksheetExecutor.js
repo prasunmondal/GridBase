@@ -1,16 +1,10 @@
 class ClearWorksheetExecutor {
 
-    //
-    // Staged like a row operation: the in-memory rows are dropped
-    // now, and the sheet is cleared by the commit at the end of the
-    // request. If a later operation (the INSERT of a save) fails,
-    // the sheet is left as it was.
-    //
-    execute(context,
+    execute(resources,
             operation) {
 
         const worksheet =
-            context.resources.worksheets.get(
+            resources.worksheets.get(
                 operation.getSpreadsheetId(),
                 operation.getWorksheet()
             );
@@ -21,25 +15,42 @@ class ClearWorksheetExecutor {
         const lastColumn =
             worksheet.getLastColumn();
 
-        const worksheetData =
-            context.provider.getWorksheetData(
-                context,
-                operation.getSpreadsheetId(),
-                operation.getWorksheet(),
-                false
-            );
+        //
+        // Nothing to clear
+        //
+        if (lastRow <= 1 ||
+            lastColumn === 0) {
 
-        worksheetData.clearRows();
+            return {
+
+                rowsCleared: 0,
+
+                columnsCleared:
+                    lastColumn
+
+            };
+
+        }
+
+        //
+        // Preserve row 1 (headers)
+        //
+        const dataRows =
+            lastRow - 1;
+
+        worksheet
+            .getRange(
+                2,
+                1,
+                dataRows,
+                lastColumn
+            )
+            .clearContent();
 
         return {
 
-            //
-            // Preserve row 1 (headers)
-            //
             rowsCleared:
-                lastColumn === 0
-                    ? 0
-                    : Math.max(lastRow - 1, 0),
+                dataRows,
 
             columnsCleared:
                 lastColumn
