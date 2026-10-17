@@ -90,7 +90,7 @@ class ExecutionEngine {
             // sheet and appends the new rows. If anything in the
             // request fails, the sheet is left as it was.
             //
-            case OperationType.SAVE:
+            case OperationType.REPLACE_ALL_DATA:
 
                 worksheetData.clearRows();
 

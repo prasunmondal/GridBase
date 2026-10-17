@@ -226,7 +226,7 @@ final class FakeSheetsEngine implements Transport {
                 }
                 return rows(result, inserted);
             }
-            case "SAVE": {
+            case "REPLACE_ALL_DATA": {
                 List<ObjectNode> saved = new ArrayList<>();
                 for (JsonNode values : op.path("rows")) {
                     ObjectNode row = blankRow(sheet);

@@ -10,21 +10,21 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SAVE: replaces every data row (the header row is kept) with the given rows, in one step. The engine
+ * REPLACE_ALL_DATA: replaces every data row (the header row is kept) with the given rows, in one step. The engine
  * clears and inserts at commit, so if the request fails the sheet is left as it was. No rows clears the
  * sheet. Each row is a {@code Map} or a POJO/record; omitted columns are left empty.
  */
-public final class SaveSpec extends OperationSpec<RowsResult> {
+public final class ReplaceAllDataSpec extends OperationSpec<RowsResult> {
 
     private final List<List<Assignment>> rows = new ArrayList<>();
 
-    public SaveSpec(Worksheet worksheet) {
+    public ReplaceAllDataSpec(Worksheet worksheet) {
         super(worksheet);
     }
 
     @Override
     public OperationType type() {
-        return OperationType.SAVE;
+        return OperationType.REPLACE_ALL_DATA;
     }
 
     @Override
@@ -32,10 +32,10 @@ public final class SaveSpec extends OperationSpec<RowsResult> {
         return RowsResult.class;
     }
 
-    public SaveSpec row(Object row) {
+    public ReplaceAllDataSpec row(Object row) {
         Map<String, Object> values = columnValues(row);
         if (values.isEmpty()) {
-            throw new IllegalArgumentException("Cannot save a row with no columns");
+            throw new IllegalArgumentException("Cannot write a row with no columns");
         }
         List<Assignment> assignments = new ArrayList<>(values.size());
         values.forEach((column, value) -> assignments.add(new Assignment(column, value, Assignment.Kind.SET)));
@@ -43,7 +43,7 @@ public final class SaveSpec extends OperationSpec<RowsResult> {
         return this;
     }
 
-    public SaveSpec rows(Collection<?> newRows) {
+    public ReplaceAllDataSpec rows(Collection<?> newRows) {
         newRows.forEach(this::row);
         return this;
     }
@@ -52,7 +52,7 @@ public final class SaveSpec extends OperationSpec<RowsResult> {
      * Values for these columns are dropped, instead of failing, if the sheet has no such column.
      * {@link io.github.prasunmondal.gridbase.mapping.OptionalColumn} properties are included automatically.
      */
-    public SaveSpec optionalColumns(String... columns) {
+    public ReplaceAllDataSpec optionalColumns(String... columns) {
         addOptionalColumns(columns);
         return this;
     }

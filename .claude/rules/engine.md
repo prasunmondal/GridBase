@@ -13,8 +13,8 @@ paths:
 - Every write path must run inside the script lock in `SheetEngine.handlePost`. Reads take no lock
   (ADR-007). Flush before releasing it, never read sheet contents before taking it, and never rewrite
   unchanged rows in a commit (ADR-015).
-- Row operations (including SAVE, ADR-017) commit together through `provider.commitAll()` at the
-  end of a request. Schema operations (CREATE / CLEAR / ADD_COLUMNS) apply immediately. Do not change either without an ADR,
+- Row operations (including REPLACE_ALL_DATA, ADR-017) commit together through
+  `provider.commitAll()` at the end of a request. Schema operations (CREATE / CLEAR / ADD_COLUMNS) apply immediately. Do not change either without an ADR,
   because the SDK queues rely on them (ADR-006).
 - Parser changes are wire-contract changes: update `RequestContractTest` too.
 - Test with the emulator before deploying:

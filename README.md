@@ -198,7 +198,7 @@ db.worksheet("Archive").create().execute();
 orders.addColumns("discount", "notes").skipExisting().execute();
 List<String> headers = orders.columns().fetch();
 orders.clear().execute();                      // keeps the header row
-orders.save(listOfOrders).execute();           // SAVE: replace every data row, all-or-nothing
+orders.replaceAllData(listOfOrders).execute(); // REPLACE_ALL_DATA: replace every data row, all-or-nothing
 ```
 
 ### Rows and types
@@ -266,8 +266,8 @@ customers.insert(c);                    // append a row, no key check
 customers.insertAll(list);              // append all rows in ONE request
 customers.upsert(c);                    // UPSERT on customer_id: update that row, or insert it
 customers.upsertAll(list);              // all upserts in ONE request (all-or-nothing)
-customers.save(c);                      // REPLACE the sheet's rows with just c
-customers.saveAll(list);                // REPLACE the sheet's rows with list (empty list → clear)
+customers.replaceAllData(c);            // REPLACE the sheet's rows with just c
+customers.replaceAllData(list);         // REPLACE the sheet's rows with list (empty list → clear)
 Optional<Customer> c = customers.findById("C-42");
 List<Customer> vip  = customers.findWhere(gt("creditLimit", 10_000));
 customers.deleteById("C-42");
@@ -277,12 +277,12 @@ customers.deleteById("C-42");
 |---|---|---|
 | `insert` / `insertAll` | one `INSERT` | kept; duplicate keys are possible |
 | `upsert` / `upsertAll` | one `UPSERT` per entity, keyed on `@SheetKey` (key must be non-null) | row with the same key is updated, others kept |
-| `save` / `saveAll` | one `SAVE` (clear and insert in one step) | all deleted (header kept) |
+| `replaceAllData` | one `REPLACE_ALL_DATA` (clear and insert in one step) | all deleted (header kept) |
 
-`save` / `saveAll` are **all-or-nothing**: `SAVE` is a row operation, so the engine clears the
-sheet and writes the new rows in the same commit. If it fails (e.g. an unknown column) the sheet is
-left as it was. `SAVE` needs an engine deployed with it; an older one rejects it with *Unsupported
-operation type: SAVE*, so redeploy the engine.
+`replaceAllData` is **all-or-nothing**: `REPLACE_ALL_DATA` is a row operation, so the engine clears
+the sheet and writes the new rows in the same commit. If it fails (e.g. an unknown column) the sheet
+is left as it was. `REPLACE_ALL_DATA` needs an engine deployed with it; an older one rejects it with
+*Unsupported operation type: REPLACE_ALL_DATA*, so redeploy the engine.
 
 Records work too (`public record Product(@SheetKey String sku, String title) {}`). Column names follow
 Jackson property names; use `@JsonProperty("Header Text")` and `@JsonIgnore` as usual. The engine does
@@ -292,7 +292,7 @@ not enforce key uniqueness.
 
 Mark a property `@OptionalColumn` to write it only when the worksheet has that column. If the column
 is missing, the value is dropped and the rest of the row is written, instead of the request failing
-with *Unknown column*. It applies to every write (`insert`, `upsert`, `update().set(entity)`, `save`,
+with *Unknown column*. It applies to every write (`insert`, `upsert`, `update().set(entity)`, `replaceAllData`,
 `cloneRows().set(entity)`); filters, sorting and `select(...)` on the column still need it to exist.
 
 ```java
@@ -700,7 +700,7 @@ Where they come from:
 
 | Source | Requests |
 |---|---|
-| `repository.requests()` | `findAll()`, `findWhere(...)`, `findFirstWhere(...)`, `findById(id)`, `existsById(id)`, `insert(e)`, `insertAll(list)`, `upsert(e)`, `upsertAll(list)`, `save(e)`, `saveAll(list)`, `deleteById(id)`, `delete(e)`, `deleteAll()` — same results as the `Repository` methods |
+| `repository.requests()` | `findAll()`, `findWhere(...)`, `findFirstWhere(...)`, `findById(id)`, `existsById(id)`, `insert(e)`, `insertAll(list)`, `upsert(e)`, `upsertAll(list)`, `replaceAllData(e)`, `replaceAllData(list)`, `deleteById(id)`, `delete(e)`, `deleteAll()` — same results as the `Repository` methods |
 | any operation spec | `.request()` (its raw result), or shortcut `.queue(reqQ)` — inserts, updates, deletes, upserts, clones, selects, schema ops |
 | select specs | `.request(Customer.class)` → `List<Customer>`, `.firstRequest()` / `.firstRequest(Customer.class)` → `Optional` |
 | your own code | `SheetRequest.of(client, operations, mapper)`, `SheetRequest.completed(value)`, and `.map(...)` on any request |
@@ -880,7 +880,7 @@ These are in the Apps Script engine (`appscript/`), not the SDK.
 | **The lock was released before the writes reached the sheet.** Apps Script sends buffered writes when the script ends, so the next writer could still read the old last row and overwrite rows just appended. | `SpreadsheetApp.flush()` runs before `releaseLock()`, on failures too. The response is built after the lock is released. | `InsertIT.concurrentInsertsAllLand` (the race needs a live deployment) |
 | **An insert past the sheet's last grid row failed** (*The coordinates of the range are outside the dimensions of the sheet*), e.g. the 1000th row of a new tab. | `WorksheetCommitter` adds the missing rows (`insertRowsAfter`) before appending. | `SchemaOperationsIT.insertPastGridGrowsWorksheet` |
 | **UPDATE rewrote the whole row.** Cells in columns it did not change were written back as values, so formulas became static values and text such as `00042` became the number 42. | Only the span of changed columns is written. | — (needs a formula or plain-text cell, which the SDK cannot create) |
-| **A failed `save` left the sheet empty.** The SDK sent `CLEAR_WORKSHEET` then `INSERT`; the clear applied at once, so an insert failing (e.g. *Unknown column*) left no rows. | New `SAVE` operation: clear and insert in one step, written at commit like other row operations. If anything fails, nothing is written. | `SaveIT.unknownColumnLeavesSheetUntouched` |
+| **A failed `save` (now `replaceAllData`) left the sheet empty.** The SDK sent `CLEAR_WORKSHEET` then `INSERT`; the clear applied at once, so an insert failing (e.g. *Unknown column*) left no rows. | New `REPLACE_ALL_DATA` operation: clear and insert in one step, written at commit like other row operations. If anything fails, nothing is written. | `ReplaceAllDataIT.unknownColumnLeavesSheetUntouched` |
 
 Notes on the lock:
 

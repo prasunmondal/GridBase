@@ -166,9 +166,9 @@ class RepositoryIT {
     }
 
     @Test
-    @DisplayName("saveAll() replaces every row with the given entities")
-    void saveAllReplaces() {
-        List<Employee> saved = employees.saveAll(List.of(
+    @DisplayName("replaceAllData() replaces every row with the given entities")
+    void replaceAllDataWithListReplaces() {
+        List<Employee> saved = employees.replaceAllData(List.of(
                 Employee.of("E101", "Only One", "Sales", 50000, LocalDate.of(2026, 5, 1)),
                 Employee.of("E102", "Only Two", "Sales", 52000, LocalDate.of(2026, 5, 2))));
 
@@ -179,13 +179,13 @@ class RepositoryIT {
     }
 
     @Test
-    @DisplayName("save() leaves only the given entity; saveAll(empty) clears the sheet")
-    void saveReplaces() {
-        employees.save(Employee.of("E101", "Sole", "HR", 40000, LocalDate.of(2026, 6, 1)));
+    @DisplayName("replaceAllData() leaves only the given entity; replaceAllData(empty) clears the sheet")
+    void replaceAllDataWithEntityReplaces() {
+        employees.replaceAllData(Employee.of("E101", "Sole", "HR", 40000, LocalDate.of(2026, 6, 1)));
         assertEquals(1, employeeCount());
         assertEquals("Sole", employees.findById("E101").orElseThrow().name);
 
-        assertTrue(employees.saveAll(List.of()).isEmpty());
+        assertTrue(employees.replaceAllData(List.of()).isEmpty());
         assertEquals(0, employeeCount());
     }
 

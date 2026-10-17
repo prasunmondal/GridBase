@@ -1,7 +1,7 @@
 # ADR-016: CLEAR_WORKSHEET is staged and committed with the request's row changes
 
 ## Status
-Superseded by ADR-017 (CLEAR_WORKSHEET applies immediately again; save uses a SAVE operation)
+Superseded by ADR-017 (CLEAR_WORKSHEET applies immediately again; save uses a REPLACE_ALL_DATA operation)
 
 ## Date
 2026-10-17

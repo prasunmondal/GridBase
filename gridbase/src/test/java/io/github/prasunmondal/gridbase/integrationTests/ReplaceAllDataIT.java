@@ -32,10 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Repository {@code save} / {@code saveAll}: one SAVE operation (clear and insert in one step), so the worksheet
+ * Repository {@code replaceAllData}: one REPLACE_ALL_DATA operation (clear and insert in one step), so the worksheet
  * ends up holding exactly the given entities (header row kept).
  */
-class SaveIT {
+class ReplaceAllDataIT {
 
     private Repository<Employee> employees;
     private Repository<Department> departments;
@@ -47,18 +47,18 @@ class SaveIT {
         departments = ItConfig.db().repository(Department.class);
     }
 
-    // ------------------------------------------------------------------ save
+    // ------------------------------------------------------------------ one entity
 
     @Test
-    @DisplayName("save() replaces every row with the one entity and returns it as written")
-    void saveReplacesAllRows() {
+    @DisplayName("replaceAllData() replaces every row with the one entity and returns it as written")
+    void replaceAllDataReplacesAllRows() {
         Employee e = Employee.of("E201", "Sole Survivor", "Finance", 123456, LocalDate.of(2026, 3, 9));
         e.age = 37;
         e.isActive = false;
         e.rating = new BigDecimal("3.25");
         e.notes = "saved";
 
-        Employee saved = employees.save(e);
+        Employee saved = employees.replaceAllData(e);
 
         assertEquals("E201", saved.employeeId);
         assertEquals(1, employeeCount());
@@ -76,25 +76,25 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("save() twice keeps only the second entity, even with the same key")
-    void saveTwiceKeepsLast() {
-        employees.save(Employee.of("E201", "First", "HR", 40000, LocalDate.of(2026, 1, 1)));
-        employees.save(Employee.of("E202", "Second", "HR", 41000, LocalDate.of(2026, 1, 2)));
+    @DisplayName("replaceAllData() twice keeps only the second entity, even with the same key")
+    void replaceAllDataTwiceKeepsLast() {
+        employees.replaceAllData(Employee.of("E201", "First", "HR", 40000, LocalDate.of(2026, 1, 1)));
+        employees.replaceAllData(Employee.of("E202", "Second", "HR", 41000, LocalDate.of(2026, 1, 2)));
         assertEquals(List.of("E202"), ids(employeesSheet().select().fetch()));
 
-        employees.save(Employee.of("E202", "Second Again", "HR", 42000, LocalDate.of(2026, 1, 3)));
+        employees.replaceAllData(Employee.of("E202", "Second Again", "HR", 42000, LocalDate.of(2026, 1, 3)));
         assertEquals(1, employeeCount());
         assertEquals("Second Again", employee("E202").getString("Name"));
     }
 
     @Test
-    @DisplayName("save() writes null fields as blank cells")
-    void saveWritesNullsAsBlanks() {
+    @DisplayName("replaceAllData() writes null fields as blank cells")
+    void replaceAllDataWritesNullsAsBlanks() {
         Employee e = Employee.of("E201", "Sparse", "HR", 40000, LocalDate.of(2026, 1, 1));
         e.email = null;
         e.rating = null;
         e.managerId = null;
-        employees.save(e);
+        employees.replaceAllData(e);
 
         Row row = employee("E201");
         assertTrue(row.isBlank("Email"));
@@ -103,12 +103,12 @@ class SaveIT {
         assertNull(employees.findById("E201").orElseThrow().rating);
     }
 
-    // ------------------------------------------------------------------ saveAll
+    // ------------------------------------------------------------------ a list
 
     @Test
-    @DisplayName("saveAll() replaces every row and keeps the given order")
-    void saveAllReplacesInOrder() {
-        List<Employee> saved = employees.saveAll(List.of(
+    @DisplayName("replaceAllData() replaces every row and keeps the given order")
+    void replaceAllDataReplacesInOrder() {
+        List<Employee> saved = employees.replaceAllData(List.of(
                 Employee.of("E203", "Third", "Sales", 53000, LocalDate.of(2026, 5, 3)),
                 Employee.of("E201", "First", "Sales", 51000, LocalDate.of(2026, 5, 1)),
                 Employee.of("E202", "Second", "Sales", 52000, LocalDate.of(2026, 5, 2))));
@@ -122,9 +122,9 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("saveAll(empty) clears the sheet but keeps the header row")
-    void saveAllEmptyKeepsHeader() {
-        assertTrue(employees.saveAll(List.of()).isEmpty());
+    @DisplayName("replaceAllData(empty) clears the sheet but keeps the header row")
+    void replaceAllDataEmptyKeepsHeader() {
+        assertTrue(employees.replaceAllData(List.of()).isEmpty());
         assertEquals(0, employeeCount());
 
         employees.insert(Employee.of("E201", "After Clear", "HR", 40000, LocalDate.of(2026, 1, 1)));
@@ -134,43 +134,43 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("saveAll() on an already empty sheet just inserts")
-    void saveAllOnEmptySheet() {
+    @DisplayName("replaceAllData() on an already empty sheet just inserts")
+    void replaceAllDataOnEmptySheet() {
         employees.deleteAll();
         assertEquals(0, employeeCount());
 
-        employees.saveAll(List.of(
+        employees.replaceAllData(List.of(
                 Employee.of("E201", "A", "HR", 40000, LocalDate.of(2026, 1, 1)),
                 Employee.of("E202", "B", "HR", 41000, LocalDate.of(2026, 1, 2))));
         assertEquals(2, employeeCount());
     }
 
     @Test
-    @DisplayName("saveAll() does not check keys: duplicates are all written, like insertAll()")
-    void saveAllKeepsDuplicateKeys() {
-        employees.saveAll(List.of(
+    @DisplayName("replaceAllData() does not check keys: duplicates are all written, like insertAll()")
+    void replaceAllDataKeepsDuplicateKeys() {
+        employees.replaceAllData(List.of(
                 Employee.of("E201", "One", "HR", 40000, LocalDate.of(2026, 1, 1)),
                 Employee.of("E201", "Two", "HR", 41000, LocalDate.of(2026, 1, 2))));
         assertEquals(List.of("E201", "E201"), ids(employeesSheet().select().fetch()));
     }
 
     @Test
-    @DisplayName("saveAll() writes a few hundred rows in one request")
-    void saveAllManyRows() {
+    @DisplayName("replaceAllData() writes a few hundred rows in one request")
+    void replaceAllDataManyRows() {
         List<Employee> many = new ArrayList<>();
         for (int i = 0; i < 300; i++) {
             many.add(Employee.of(String.format("B%04d", i), "Bulk " + i, "Ops", 30000 + i, LocalDate.of(2026, 1, 1)));
         }
-        assertEquals(300, employees.saveAll(many).size());
+        assertEquals(300, employees.replaceAllData(many).size());
         assertEquals(300, employeeCount());
         assertEquals("Bulk 299", employee("B0299").getString("Name"));
     }
 
     @Test
-    @DisplayName("saveAll() with a record entity")
-    void saveAllRecords() {
+    @DisplayName("replaceAllData() with a record entity")
+    void replaceAllDataRecords() {
         assertEquals(DEPARTMENT_COUNT, departments.findAll().size());
-        List<Department> saved = departments.saveAll(List.of(
+        List<Department> saved = departments.replaceAllData(List.of(
                 new Department("OPS", "Operations", 900000L, "Pune", "E007"),
                 new Department("LEG", "Legal", 400000L, "Delhi", null)));
 
@@ -185,10 +185,10 @@ class SaveIT {
     // ------------------------------------------------------------------ cache and queues
 
     @Test
-    @DisplayName("save() invalidates the cache: a warmed findAll() sees the saved rows")
-    void saveInvalidatesCache() {
+    @DisplayName("replaceAllData() invalidates the cache: a warmed findAll() sees the saved rows")
+    void replaceAllDataInvalidatesCache() {
         assertEquals(EMPLOYEE_COUNT, employees.findAll().size());   // warms Employee's CACHE_FIRST cache
-        employees.saveAll(List.of(Employee.of("E201", "Fresh", "HR", 40000, LocalDate.of(2026, 1, 1))));
+        employees.replaceAllData(List.of(Employee.of("E201", "Fresh", "HR", 40000, LocalDate.of(2026, 1, 1))));
 
         List<Employee> after = employees.findAll();
         assertEquals(1, after.size());
@@ -196,12 +196,12 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("APIRequestsQueue: saveAll() runs in order between the reads queued around it")
-    void saveAllInQueue() {
+    @DisplayName("APIRequestsQueue: replaceAllData() runs in order between the reads queued around it")
+    void replaceAllDataInQueue() {
         APIRequestsQueue reqQ = new APIRequestsQueue();
         Queued<List<Department>> before = departments.requests().findAll().queue(reqQ);
         Queued<List<Department>> saved = departments.requests()
-                .saveAll(List.of(new Department("OPS", "Operations", 900000L, "Pune", "E007")))
+                .replaceAllData(List.of(new Department("OPS", "Operations", 900000L, "Pune", "E007")))
                 .queue(reqQ);
         Queued<List<Department>> after = departments.requests().findAll().queue(reqQ);
         assertEquals(DEPARTMENT_COUNT, departments.findAll().size());   // nothing sent yet
@@ -233,7 +233,7 @@ class SaveIT {
     }
 
     @Test
-    @DisplayName("an unknown column fails save() and leaves the sheet untouched (SAVE is all-or-nothing)")
+    @DisplayName("an unknown column fails replaceAllData() and leaves the sheet untouched (REPLACE_ALL_DATA is all-or-nothing)")
     void unknownColumnLeavesSheetUntouched() {
         EmployeeWithUnknownColumn e = new EmployeeWithUnknownColumn();
         e.id = "E201";
@@ -241,14 +241,14 @@ class SaveIT {
         e.extra = "x";
 
         ServerException ex = assertThrows(ServerException.class,
-                () -> ItConfig.db().repository(EmployeeWithUnknownColumn.class).save(e));
+                () -> ItConfig.db().repository(EmployeeWithUnknownColumn.class).replaceAllData(e));
         assertTrue(ex.getServerMessage().contains("Unknown column: NoSuchColumn"), ex.getServerMessage());
         assertEquals(EMPLOYEE_COUNT, employeeCount());
         assertTrue(employees.existsById("E001"));
     }
 
     @Test
-    @DisplayName("an @OptionalColumn missing from the sheet is skipped by save(); one that exists is written")
+    @DisplayName("an @OptionalColumn missing from the sheet is skipped by replaceAllData(); one that exists is written")
     void optionalColumnSkippedOnSave() {
         EmployeeWithOptionalColumn e = new EmployeeWithOptionalColumn();
         e.id = "E201";
@@ -256,7 +256,7 @@ class SaveIT {
         e.city = "Pune";
         e.extra = "dropped";
 
-        ItConfig.db().repository(EmployeeWithOptionalColumn.class).save(e);
+        ItConfig.db().repository(EmployeeWithOptionalColumn.class).replaceAllData(e);
 
         Row row = employee("E201");
         assertEquals("Optional", row.getString("Name"));

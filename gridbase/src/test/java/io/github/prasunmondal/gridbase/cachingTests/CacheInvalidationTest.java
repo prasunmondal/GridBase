@@ -45,8 +45,8 @@ class CacheInvalidationTest extends CachingTestBase {
                 write("repository upsert", p -> products(p).upsert(Product.of("P1", "Saved", 1, "1.00"))),
                 write("repository upsertAll", p -> products(p).upsertAll(List.of(
                         Product.of("P1", "Saved", 1, "1.00"), Product.of("P6", "Jam", 3, "3.00")))),
-                write("repository save", p -> products(p).save(Product.of("P1", "Saved", 1, "1.00"))),
-                write("repository saveAll", p -> products(p).saveAll(List.of(
+                write("repository replaceAllData(entity)", p -> products(p).replaceAllData(Product.of("P1", "Saved", 1, "1.00"))),
+                write("repository replaceAllData(list)", p -> products(p).replaceAllData(List.of(
                         Product.of("P1", "Saved", 1, "1.00"), Product.of("P6", "Jam", 3, "3.00")))),
                 write("repository insert", p -> products(p).insert(Product.of("P7", "Salt", 9, "0.50"))),
                 write("repository deleteById", p -> products(p).deleteById("P2")),
@@ -186,7 +186,7 @@ class CacheInvalidationTest extends CachingTestBase {
     }
 
     @Test
-    @DisplayName("read-your-own-writes: save then findById returns the saved data")
+    @DisplayName("read-your-own-writes: upsert then findById returns the written data")
     void readYourOwnWrites() {
         SheetProperties p = cached();
         Repository<Product> repo = products(p);

@@ -79,7 +79,7 @@ class RequestValidator {
                 this.validateClone(operation, index);
                 break;
 
-            case OperationType.SAVE:
+            case OperationType.REPLACE_ALL_DATA:
                 this.validateSave(operation, index);
                 break;
 

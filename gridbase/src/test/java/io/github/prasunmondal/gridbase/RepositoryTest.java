@@ -69,46 +69,46 @@ class RepositoryTest {
     }
 
     @Test
-    void saveAllSendsOneSaveOperation() {
+    void replaceAllDataSendsOneReplaceAllDataOperation() {
         FakeTransport t = FakeTransport.replying(
                 "\"rowCount\":2,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"A\"},{\"customer_id\":\"C2\",\"name\":\"B\"}]");
         GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
 
         List<Customer> saved = db.repository(Customer.class)
-                .saveAll(List.of(new Customer("C1", "A", 1), new Customer("C2", "B", 2)));
+                .replaceAllData(List.of(new Customer("C1", "A", 1), new Customer("C2", "B", 2)));
 
         assertEquals(1, t.requests.size());
         var ops = t.requests.get(0).path("operations");
         assertEquals(1, ops.size());
-        assertEquals("SAVE", ops.get(0).path("type").asText());
+        assertEquals("REPLACE_ALL_DATA", ops.get(0).path("type").asText());
         assertEquals("Customers", ops.get(0).path("worksheet").asText());
         assertEquals(2, ops.get(0).path("rows").size());
         assertEquals(List.of("C1", "C2"), List.of(saved.get(0).id, saved.get(1).id));
     }
 
     @Test
-    void saveReplacesSheetWithOneEntity() {
+    void replaceAllDataReplacesSheetWithOneEntity() {
         FakeTransport t = FakeTransport.replying(
                 "\"rowCount\":1,\"rows\":[{\"customer_id\":\"C1\",\"name\":\"Asha\",\"creditLimit\":500}]");
         GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
 
-        Customer saved = db.repository(Customer.class).save(new Customer("C1", "Asha", 500));
+        Customer saved = db.repository(Customer.class).replaceAllData(new Customer("C1", "Asha", 500));
 
         var ops = t.requests.get(0).path("operations");
         assertEquals(1, ops.size());
-        assertEquals("SAVE", ops.get(0).path("type").asText());
+        assertEquals("REPLACE_ALL_DATA", ops.get(0).path("type").asText());
         assertEquals(500, saved.creditLimit.intValue());
     }
 
     @Test
-    void saveAllOfNothingSendsSaveWithoutRows() {
+    void replaceAllDataOfNothingSendsReplaceAllDataWithoutRows() {
         FakeTransport t = FakeTransport.replying("\"rowCount\":0,\"rows\":[]");
         GridBase db = GridBase.builder().transport(t).defaultSpreadsheetId("S").build();
 
-        assertTrue(db.repository(Customer.class).saveAll(List.of()).isEmpty());
+        assertTrue(db.repository(Customer.class).replaceAllData(List.of()).isEmpty());
 
         assertEquals(1, t.requests.get(0).path("operations").size());
-        assertEquals("SAVE", t.lastOperation().path("type").asText());
+        assertEquals("REPLACE_ALL_DATA", t.lastOperation().path("type").asText());
         assertFalse(t.lastOperation().has("rows"));
     }
 

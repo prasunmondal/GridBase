@@ -6,7 +6,7 @@ OperationType.UPDATE = "UPDATE";
 OperationType.DELETE = "DELETE";
 OperationType.UPSERT = "UPSERT";
 OperationType.CLONE = "CLONE";
-OperationType.SAVE = "SAVE";
+OperationType.REPLACE_ALL_DATA = "REPLACE_ALL_DATA";
 OperationType.CREATE_WORKSHEET = "CREATE_WORKSHEET";
 OperationType.CLEAR_WORKSHEET = "CLEAR_WORKSHEET";
 
