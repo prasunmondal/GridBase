@@ -45,8 +45,10 @@ import java.util.UUID;
 import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -135,7 +137,8 @@ public final class GridBase {
                     .build();
         }
         this.queue = b.queueWindow == null ? null
-                : new RequestQueue(b.queueWindow, b.queueMaxOperations, this::sendCombined, ASYNC);
+                : new RequestQueue(b.queueWindow, b.queueMaxOperations, this::sendCombined,
+                b.queueCallbacks != null ? b.queueCallbacks : ASYNC);
     }
 
     public static Builder builder() {
@@ -259,21 +262,23 @@ public final class GridBase {
         List<Operation> ops = Compat.copyOf(operations);
         boolean readOnly = isReadOnly(ops);
         if (cache == null) {
-            return fetch(ops, readOnly, async).thenApply(Reply::parsed);
+            return fetch(ops, readOnly, async, null).thenApply(Reply::parsed);
         }
         if (!readOnly) {
-            return fetch(ops, false, async)
-                    .whenComplete((reply, failure) -> invalidateWrites(ops))
-                    .thenApply(Reply::parsed);
+            return fetch(ops, false, async, (reply, failure) -> invalidateWrites(ops)).thenApply(Reply::parsed);
         }
         if (!isCacheable(ops)) {
-            return fetch(ops, true, async).thenApply(Reply::parsed);
+            return fetch(ops, true, async, null).thenApply(Reply::parsed);
         }
         CachedRead read = refresh ? refreshing(ops) : lookup(ops);
         if (read.hit()) {
             return now(() -> parser.parse(read.entry().get().reply(), ops));
         }
-        return fetch(ops, true, async).handle((reply, failure) -> finishRead(read, reply, failure));
+        return fetch(ops, true, async, (reply, failure) -> {
+            if (failure == null) {
+                store(read, reply);
+            }
+        }).handle((reply, failure) -> answerRead(read, reply, failure));
     }
 
     /** A request for {@link #executeTogether}; {@code forceRefresh} as in {@link #executeRefreshing}. */
@@ -446,13 +451,24 @@ public final class GridBase {
     /** Stores a successful read, or falls back to a stale entry (NETWORK_FIRST) when the network failed. */
     private ExecutionResponse finishRead(CachedRead read, Reply reply, Throwable failure) {
         if (failure == null) {
-            Instant cachedAt = clock.instant();
-            List<SheetRef> sheets = read.operations().stream()
-                    .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().collect(Compat.toList());
-            quietly("write", () -> {
-                cache.put(read.key(), reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
-                return null;
-            });
+            store(read, reply);
+        }
+        return answerRead(read, reply, failure);
+    }
+
+    private void store(CachedRead read, Reply reply) {
+        Instant cachedAt = clock.instant();
+        List<SheetRef> sheets = read.operations().stream()
+                .map(op -> new SheetRef(op.spreadsheetId(), op.worksheet())).distinct().collect(Compat.toList());
+        quietly("write", () -> {
+            cache.put(read.key(), reply.body(), cachedAt, cacheExpiry.expiresAt(cachedAt), sheets);
+            return null;
+        });
+    }
+
+    /** The read's answer once stored (see {@link #store}): the reply, or a stale fallback, or the failure. */
+    private ExecutionResponse answerRead(CachedRead read, Reply reply, Throwable failure) {
+        if (failure == null) {
             return reply.parsed();
         }
         Throwable cause = unwrap(failure);
@@ -483,14 +499,20 @@ public final class GridBase {
     }
 
     /** Through the queue when there is one; otherwise on the caller's thread (sync) or a pool thread (async). */
-    private CompletableFuture<Reply> fetch(List<Operation> operations, boolean readOnly, boolean async) {
+    /**
+     * {@code cacheWork} (may be null) sees the reply or failure before the returned future completes.
+     * Through the queue it runs on the worker in call order, so a write's invalidation and a read's
+     * store from the same combined call apply in the order the engine ran them.
+     */
+    private CompletableFuture<Reply> fetch(List<Operation> operations, boolean readOnly, boolean async,
+                                           BiConsumer<Reply, Throwable> cacheWork) {
         if (queue != null && queue.accepts(operations)) {
-            return queue.submit(operations);
+            return queue.submit(operations, cacheWork);
         }
-        if (async) {
-            return CompletableFuture.supplyAsync(() -> remote(operations, readOnly), ASYNC);
-        }
-        return now(() -> remote(operations, readOnly));
+        CompletableFuture<Reply> f = async
+                ? CompletableFuture.supplyAsync(() -> remote(operations, readOnly), ASYNC)
+                : now(() -> remote(operations, readOnly));
+        return cacheWork == null ? f : f.whenComplete((reply, failure) -> cacheWork.accept(reply, failure));
     }
 
     private Reply slice(Reply combined, int offset, List<Operation> operations) {
@@ -697,8 +719,15 @@ public final class GridBase {
         private Clock clock = Clock.systemUTC();
         private Duration queueWindow;
         private int queueMaxOperations;
+        private Executor queueCallbacks;
 
         private Builder() {
+        }
+
+        /** Tests only: where the automatic queue completes caller futures (default: the async pool). */
+        Builder queueCallbacks(Executor callbacks) {
+            this.queueCallbacks = Objects.requireNonNull(callbacks, "callbacks");
+            return this;
         }
 
         /**

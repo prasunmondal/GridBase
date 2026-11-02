@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase;
 
 import io.github.prasunmondal.gridbase.internal.Compat;
+import io.github.prasunmondal.gridbase.internal.Log;
 import io.github.prasunmondal.gridbase.GridBase.Outcome;
 import io.github.prasunmondal.gridbase.GridBase.Reply;
 import io.github.prasunmondal.gridbase.spec.Operation;
@@ -16,6 +17,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -27,7 +29,10 @@ import java.util.function.Function;
  */
 final class RequestQueue {
 
-    private record Pending(List<Operation> operations, CompletableFuture<Reply> future) {
+    private static final Log LOG = Log.get(RequestQueue.class);
+
+    private record Pending(List<Operation> operations, BiConsumer<Reply, Throwable> onWorker,
+                           CompletableFuture<Reply> future) {
     }
 
     private final Duration window;
@@ -73,7 +78,16 @@ final class RequestQueue {
 
     /** The returned future completes on a callback thread, never on the queue thread. */
     CompletableFuture<Reply> submit(List<Operation> operations) {
-        Pending p = new Pending(Compat.copyOf(operations), new CompletableFuture<>());
+        return submit(operations, null);
+    }
+
+    /**
+     * As {@link #submit(List)}; {@code onWorker} (if not null) gets this request's reply or failure on
+     * the worker thread, in call order, before any future of the call completes. Cache bookkeeping runs
+     * there, so one caller's invalidation and another's store cannot swap order on callback threads.
+     */
+    CompletableFuture<Reply> submit(List<Operation> operations, BiConsumer<Reply, Throwable> onWorker) {
+        Pending p = new Pending(Compat.copyOf(operations), onWorker, new CompletableFuture<>());
         synchronized (this) {
             pending.add(p);
             pendingOperations += p.operations().size();
@@ -110,6 +124,9 @@ final class RequestQueue {
         try {
             List<Outcome<Reply>> outcomes = sendCombined.apply(chunk.stream().map(Pending::operations).collect(Compat.toList()));
             for (int i = 0; i < chunk.size(); i++) {
+                runOnWorker(chunk.get(i), outcomes.get(i).value(), outcomes.get(i).failure());
+            }
+            for (int i = 0; i < chunk.size(); i++) {
                 Outcome<Reply> o = outcomes.get(i);
                 if (o.failure() != null) {
                     chunk.get(i).future().completeExceptionally(o.failure());
@@ -118,7 +135,19 @@ final class RequestQueue {
                 }
             }
         } catch (Throwable t) {
+            chunk.forEach(p -> runOnWorker(p, null, t));
             chunk.forEach(p -> p.future().completeExceptionally(t));
+        }
+    }
+
+    private static void runOnWorker(Pending p, Reply reply, Throwable failure) {
+        if (p.onWorker() == null) {
+            return;
+        }
+        try {
+            p.onWorker().accept(reply, failure);
+        } catch (RuntimeException e) {
+            LOG.warning(() -> "gridbase queue hook failed: " + e.getMessage());
         }
     }
 }

@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-11-02
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/RequestQueue.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/APIRequestsQueue.java
@@ -34,6 +34,10 @@ request queue". Decision: ADR-006.
   safely.
 - Calls made on the worker thread (from hooks) bypass the queue, to avoid deadlock. Caller futures
   complete on the `gridbase-async` pool, never on the worker.
+- **Cache bookkeeping (write invalidation, read store) runs on the worker, per request in call order,
+  before any future completes** (`submit(ops, onWorker)`). On callback threads a write's invalidation
+  could land after a later read's store (fresh reply erased) or before an earlier read's store (stale
+  reply kept). `executeTogether` already works this way for the explicit queue.
 
 ## Shared core: `GridBase.sendCombined`
 - It makes one combined call, then `ResponseParser.slice` cuts the reply per request. Results are
@@ -42,4 +46,8 @@ request queue". Decision: ADR-006.
   This is safe because the engine wrote no row changes.
 
 ## Tests
-`APIRequestsQueueTest`, `RequestQueueTest`, `cachingTests/CacheBatchingTest`.
+`APIRequestsQueueTest`, `RequestQueueTest`, `cachingTests/CacheBatchingTest`, `cachingTests/QueueConsistencyTest`.
+- **Callback-order races: `QueueCacheOrderingTest`.** It injects a callback executor that holds
+  callbacks and runs them in reverse (package-private `Builder.queueCallbacks`), so a race fails every
+  run, not by luck. Timing-based loops (`QueueConsistencyTest`) passed with the bug present; add new
+  queue/cache ordering cases here, and check a new test fails against a mutant before trusting it.
