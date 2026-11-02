@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-16
+last_verified: 2026-11-02
 sources: [gridbase/src/test/, gridbase/pom.xml]
 ---
 # Testing
@@ -10,7 +10,7 @@ sources: [gridbase/src/test/, gridbase/pom.xml]
 |---|---|---|---|
 | Unit | `gridbase/src/test/java/.../gridbase/*Test.java`, `cache/` | yes | none (`FakeTransport`; `HttpTransportTest` uses an in-process server) |
 | Caching suite | `.../cachingTests/` | yes | none (`FakeSheetsEngine`) |
-| Integration | `.../integrationTests/*IT.java` | **no**: run with `mvn test -pl gridbase -Dtest='*IT'` | **live** Apps Script deployment, or the emulator |
+| Integration | `.../integrationTests/*IT.java`, `.../stressTests/StressIT.java` | **no**: run with `mvn test -pl gridbase -Dtest='*IT'` | **live** Apps Script deployment, or the emulator |
 | Android | `gridbase-android` | no tests (Android stubs) | on-device checklist in `android.md` |
 
 ## Commands
@@ -37,17 +37,20 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
   `SheetProperties.clock(...)`. `FakeSheetsEngine` holds real rows and supports `editDirectly`,
   `goOffline`, `failRequestsTouching` and `failNextWith(message)` (e.g. a retryable "Lock timeout"), so
   tests can check data freshness and not only call counts. Queue and batch tests that need real rows
-  live there too (`QueueConsistencyTest`).
+  live there too (`QueueConsistencyTest`). Queue/cache ordering races are tested deterministically
+  by `QueueCacheOrderingTest`, which runs held callbacks in reverse (`queueing.md`).
   Under `-Dhs.cacheBackend=MEMORY`, 3 file-based tests are expected to fail.
 - Wire-contract changes update `RequestContractTest`. Engine bug fixes get a regression IT, listed in
   the README "Engine issues" table.
 - Against an engine deployed before the fixes, these ITs are expected to fail: `SelectQueryIT`
   (IN/BETWEEN, raw numeric EQUALS), `DeleteIT` (deletes within a batch),
-  `InsertIT.concurrentInsertsAllLand` and `SchemaOperationsIT.insertPastGridGrowsWorksheet`.
+  `InsertIT.concurrentInsertsAllLand`, `SchemaOperationsIT.insertPastGridGrowsWorksheet`,
+  `ReplaceAllDataIT` (no REPLACE_ALL_DATA) and `BatchIT.eachOperationReportsItsTime` (no per-operation
+  timing).
 - ITs tagged `@Tag("live")` (`ConcurrencyIT`, `UpdateIT.updateKeepsFormulasInOtherColumns`) need a live
   deployment: the emulator is serial and does not evaluate formulas. `SchemaOperationsIT.lastUpdatedWithoutDrive…`
   aborts unless the engine lacks Drive (`HS_DRIVE=off`).
-- `StressIT` (`@Tag("stress")`) is sized by `-Dhs.stress.clients|rounds|rows|writeAttempts` (defaults 8/5/500/8),
+- `StressIT` (package `stressTests`, `@Tag("stress")`; `-Dtest='*IT'` still selects it) is sized by `-Dhs.stress.clients|rounds|rows|writeAttempts` (defaults 8/5/500/8),
   prints p50/p95/max latencies to stderr, and retries writes only on retryable lock timeouts. It runs on the
   emulator, but contention only happens on a live deployment.
   Its wide test (`IT_StressWide`, default 100,000 rows x 50 columns) runs only with `-Dhs.stress.wide=true`;

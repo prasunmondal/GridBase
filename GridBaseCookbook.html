@@ -755,6 +755,27 @@ Specs added to a batch use the batch's `onFailure`, not their own.
 The final write to the sheet takes several Sheets calls. An Apps Script timeout in the middle can
 leave a partial write, so a batch groups changes but is not a real database transaction.
 
+### Find the slow operation in a batch
+
+```java
+Batch batch = db.batch();
+Ref<RowsResult> open  = batch.add(orders.select().where(eq("status", "OPEN")));
+Ref<RowsResult> moved = batch.add(stock.update().set("qty", 7).where(eq("sku", "P1")));
+BatchResult result = batch.execute();
+
+open.get().executionTimeMillis();    // e.g. 410: loading Orders, then the query
+moved.get().executionTimeMillis();   // e.g. 380: loading Stock, then the update
+result.executionTimeMillis();        // e.g. 1450: both, plus writing and flushing the changes
+```
+
+Each operation's time includes loading its worksheet when it is the first operation to touch it, so
+a second query on the same sheet is usually much faster. The time to write the changes is reported
+only for the whole request. Neither time includes the network or the wait for the engine's write lock.
+For a single call, `orders.select().execute().executionTimeMillis()` works the same way.
+
+This needs a **redeployed engine**. Against an older one, every operation returns
+`OperationResult.UNKNOWN_TIME` (-1).
+
 
 ## 9. Fewer HTTP calls: request queues
 
@@ -1070,6 +1091,23 @@ builds:
 ```
 
 Hooks run around every HTTP attempt, including retries. Cache hits make no call and don't trigger them.
+
+### Engine time vs. network time
+
+```java
+.postNetworkCall(r -> metrics.record("gridbase.roundTrip", r.elapsed()))   // whole HTTP attempt
+
+BatchResult result = batch.execute();
+for (OperationResult op : result.results()) {
+    if (op.executionTimeMillis() != OperationResult.UNKNOWN_TIME) {
+        metrics.record("gridbase.op", Duration.ofMillis(op.executionTimeMillis()));
+    }
+}
+```
+
+The round trip minus `result.executionTimeMillis()` is roughly what Apps Script startup, the lock
+wait and the network cost you. If that gap dominates, combining calls with a request queue helps more
+than tuning queries.
 
 ### Count calls (e.g. to watch quota)
 

@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-11-02
 sources:
   - gridbase-android/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/cache/CacheBackend.java

@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-11-02
 sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java]
 asserts:
   - { file: pom.xml, contains: "<module>gridbase-android</module>" }
@@ -13,7 +13,7 @@ asserts:
 | `gridbase/` | `gridbase` | The SDK: API, specs, serializer/parser, transport, cache, queues |
 | `gridbase-android/` | `gridbase-android` | `AndroidSqliteResponseCache` only. It depends on `gridbase`; **`gridbase` never depends on it** (it is loaded by reflection, ADR-009) |
 | `appscript/` | (deployed with clasp) | The engine: the single source of truth for the server (ADR-001) |
-| `scripts/sync/` | — | Developer tooling: git-bundle sync between machines (see `domains/build-release.md`) |
+| `code-sync/` | — | Developer tooling: git-bundle sync between machines (see `domains/build-release.md`) |
 
 ## Request pipeline (nothing is sent until `execute()` / `fetch()`)
 ```
@@ -29,12 +29,12 @@ Worksheet / Repository<T> / SheetProperties     fluent API, entity mapping      
 ## Packages (`gridbase/src/main/java/io/github/prasunmondal/gridbase/`)
 | Package | Owns |
 |---|---|
-| root | `GridBase` (client + execution core), `SheetProperties`, `Worksheet`, `Batch`/`Ref`, `SheetRequest`/`APIRequestsQueue`/`Queued`, `RequestQueue` (package-private), `RetryPolicy`, `NetworkCall*` |
+| root | `GridBase` (client + execution core), `SheetProperties`, `Worksheet`, `GridBaseTable` (per-table holder), `Batch`/`Ref`/`BatchResult`, `SheetRequest`/`APIRequestsQueue`/`Queued`, `RequestQueue` (package-private), `RetryPolicy`, `NetworkCall*`, `NetworkLogger`, `RequestFailure` (failure hooks) |
 | `spec` | Operation builders + `Operation` record |
 | `query` | `Filters`, `Filter`, `Operator`, `Sort` |
 | `internal` | `RequestSerializer`, `ResponseParser`, `JsCompat`, `Json`, `Compat`, `Log`: not public API |
 | `cache` | `ResponseCache` and stores, `CacheBackend`, `CacheExpiry`, `CacheStrategy` |
-| `mapping` | `Repository<T>`, `@SheetTable`, `@SheetKey`, `EntityMetadata` |
+| `mapping` | `Repository<T>`, `@SheetTable`, `@SheetKey`, `@OptionalColumn`, `@IgnoreUnknownColumns`, `EntityMetadata` |
 | `result`, `exception`, `transport` | Reply types, exception hierarchy, HTTP |
 
 ## Cross-domain dependencies
@@ -48,6 +48,7 @@ Worksheet / Repository<T> / SheetProperties     fluent API, entity mapping      
 ## Threading model
 - Without a request queue, synchronous calls run on the caller's thread.
 - With `queueRequests(window)`: one daemon worker sends one HTTP call at a time, and caller futures
-  complete on the `gridbase-async` pool, never on the worker (ADR-006).
+  complete on the `gridbase-async` pool, never on the worker (ADR-006). Cache invalidation and
+  storage for queued requests run on the worker, in request order, before any future completes.
 - Cache stores are shared per file within the JVM and are thread-safe.
 - In the engine, write requests take a script lock and reads do not (ADR-007).

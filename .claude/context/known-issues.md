@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-14
+last_verified: 2026-11-02
 sources: [appscript/backend/parser/RequestValidator.js, appscript/common/, appscript/deploy.bat, appscript/deploy.cmd, appscript/appsscript.json, appscript/backend/loader/ValueReader.js, appscript/backend/commit/WorksheetCommitter.js, gridbase/src/test/java/io/github/prasunmondal/gridbase/integrationTests/ItConfig.java]
 ---
 # Known issues and technical debt
@@ -27,10 +27,9 @@ users need to know.
 |---|---|---|
 | The `ItConfig` Javadoc says `mvn verify` runs ITs and refers to `Test1`, which no longer exists | `integrationTests/ItConfig.java` | There is no failsafe plugin. Run ITs with `-Dtest='*IT'`. |
 | `deploy.cmd` / `deploy.bat` push from the hard-coded `D:\Projects\GridBase\appscript`, not from the checkout | `appscript/deploy.cmd` | Deploying pushes whatever is in that folder. On a machine where the repo lives elsewhere (e.g. `C:\Projects\GridBase`), fix `PROJECT_DIR` first. |
-| Automatic queue: a request's cache store (`finishRead`) and another request's invalidation (`invalidateWrites`) from the same combined call run on different `gridbase-async` threads, in any order | `GridBase.submit`, `RequestQueue` | Write-then-read in one window often erases the fresh read (extra network call; `QueueConsistencyTest.writeThenReadInOneWindowCachesThePostWriteRead` fails). Read-then-write could leave a stale entry; not reproduced. `executeTogether` does both in order on one thread. |
 | A combined call's reply is parsed whole before it is split, so one missing result fails every request in the call | `GridBase.remote` / `sendCombined` | Pinned by `RequestQueueTest.aShortReplyFailsEveryRequestInTheCall`. |
 | Combining a read with a write removes the read's retry; `APIRequestsQueue` groups by client, not queue order; a failed `Batch` can be re-executed | `GridBase.sendCombined`, `APIRequestsQueue`, `Batch` | Pinned by tests (A4, B6, C11) but not documented in the README. |
-| GPG signing is bound to `verify` without a profile | root `pom.xml` | `mvn install` needs the key or `-Dgpg.skip`. Not yet checked whether JitPack builds are affected. |
+| GPG signing is bound to `verify` without a profile | root `pom.xml` | `mvn install` needs the key or `-Dgpg.skip`. Not yet checked whether JitPack builds are affected. The `publish` profile (`4cc48e0`) repeats the signing and Central plugins but leaves the default build signing, so it fixes nothing yet. Moving them into the profile only would fix it. |
 
 ## Engine review triage (`history/engine-review.md`, checked 2026-10-09)
 | # | Item | Status |

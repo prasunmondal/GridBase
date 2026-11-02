@@ -15,7 +15,7 @@ open matching files.
 | cache, expiry, stale, invalidation, SQLite, journal | `domains/cache.md` | cache | `cache/`, `GridBase.java` | 005, 010 |
 | Android, R8, `gridbase-android`, dlopen | `domains/android.md` | cache, sdk-main | `gridbase-android/`, `CacheBackend.java` | 002, 009, 010 |
 | queue, async, combine, `executeAsync`, `APIRequestsQueue` | `domains/queueing.md` | queueing | `RequestQueue.java`, `APIRequestsQueue.java`, `GridBase.java` | 006 |
-| build, version, release, publish, JitPack, GPG, bundle sync | `domains/build-release.md` | build-release | `pom.xml` ×3, `jitpack.yml`, `scripts/sync/` | 002 |
+| build, version, release, publish, JitPack, GPG, bundle sync | `domains/build-release.md` | build-release | `pom.xml` ×3, `jitpack.yml`, `code-sync/` | 002 |
 | tests, IT, emulator, fake engine | `domains/testing.md` | tests | `gridbase/src/test/` | — |
 | purpose, consumers, compatibility promise, terminology | `product.md` | — | `README.md` | — |
 | where things are, module boundaries, threading | `architecture.md` | — | poms | 009 |

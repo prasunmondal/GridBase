@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
+last_verified: 2026-11-02
 sources: [README.md, pom.xml]
 asserts:
   - { file: pom.xml, contains: "<artifactId>gridbase-parent</artifactId>" }
@@ -44,7 +44,7 @@ through a typed, fluent API instead of hand-building JSON.
 |---|---|
 | Engine | The Apps Script web app in `appscript/`, reached at its `/exec` URL |
 | Spreadsheet / worksheet / tab | A Google file (`spreadsheetId`) / one sheet inside it (the engine calls it `worksheet`; `SheetProperties.tabName`) |
-| Operation | One engine op (SELECT, INSERT, UPDATE, DELETE, UPSERT, CLONE, CREATE, CLEAR, ADD_COLUMNS, GET_COLUMNS, GET_LAST_UPDATED), an immutable `spec.Operation` |
+| Operation | One engine op (SELECT, INSERT, UPDATE, DELETE, UPSERT, CLONE, REPLACE_ALL_DATA, CREATE, CLEAR, ADD_COLUMNS, GET_COLUMNS, GET_LAST_UPDATED), an immutable `spec.Operation` |
 | Spec | A builder (`spec/*Spec`) that produces one Operation |
 | Request | One HTTP POST carrying one or more Operations |
 | Schema op | CREATE / CLEAR / ADD_COLUMNS: applied immediately, not part of the row commit |

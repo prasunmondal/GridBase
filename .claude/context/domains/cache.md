@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-13
+last_verified: 2026-11-02
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/cache/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/GridBase.java
@@ -23,6 +23,9 @@ are in the README "Response cache" section. Decisions: ADR-005 and ADR-010.
   **not** fire on hits.
 - **Every non-read-only request invalidates its worksheets, even when it fails**
   (`invalidateWrites`).
+- A read's reply is stored before the caller gets its answer (`finishRead` → `store` → `answerRead`).
+  For queued requests, invalidation and store run on the queue worker in call order before any
+  future completes, so a write and a read in one combined call cannot race (`queueing.md`).
 - `CacheExpiry` (`ttl` / `dailyAt`, combined with `or`) decides freshness. `CacheStrategy.NETWORK_FIRST`
   falls back to stale entries **only** on transport or retryable errors.
 - `SheetRequest.forceRefresh()` → `GridBase.executeRefreshing` / `Planned.forceRefresh`

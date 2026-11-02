@@ -1,7 +1,7 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-10
-sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, jitpack.yml, scripts/sync/]
+last_verified: 2026-11-02
+sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, jitpack.yml, code-sync/]
 asserts:
   - { file: pom.xml, contains: "central-publishing-maven-plugin" }
   - { file: pom.xml, contains: "<keyname>E017E18C9699E75C</keyname>" }
@@ -15,7 +15,10 @@ asserts:
   the build on API use not available on Android 26 (ADR-002).
 - Sources and javadoc jars are attached. **`maven-gpg-plugin` signs at `verify` in the default build
   (no profile)**, so `mvn verify` / `mvn install` need the GPG key `E017E18C9699E75C`. Elsewhere,
-  pass `-Dgpg.skip`.
+  pass `-Dgpg.skip`. The root pom also has a `publish` profile (added in `4cc48e0`) that declares the
+  same `maven-gpg-plugin` and `central-publishing-maven-plugin` again. It changes nothing while the
+  default build has them, so `-Ppublish` is not needed.
+- A Maven wrapper (`mvnw`, `mvnw.cmd`, `.mvn/wrapper/`) pins Maven 3.9.9. Plain `mvn` works too.
 - Runtime dependencies are limited to `jackson-databind`, `jackson-datatype-jsr310` and `sqlite-jdbc`.
   Adding one is a public-facing decision that needs an ADR (see `product.md` promise 3).
 
@@ -38,18 +41,14 @@ they agree. The README "Install" snippets repeat the version too.
 Steps 4–5 are reconstructed from `pom.xml` and the README and are not yet confirmed by the
 maintainer.
 
-## Developer workflow: git-bundle sync (`scripts/sync/`)
+## Developer workflow: git-bundle sync (`code-sync/`)
 The maintainer moves the repository between machines (`C:\Projects\GridBase` ⇄ `D:\Projects\GridBase`)
-through **git bundles in a Google Drive folder**. The entry point is `git-bundles/GitBundle.bat`, which
-calls `main.bat UPLOAD|DOWNLOAD`, with paths in `config.bat`. `gridbase.bundler.bat` is the older
-single-file version of the same tool, from before it was split up. These are personal machine
-settings, so do not "fix" the paths. The local edits to `config.bat` and `main.bat` that often show
-in `git status` are normal.
-
-`code-sync/` is the newer, repo-agnostic copy. Run `bundle.bat`; it calls `_internal.bat`, named so
-that it is not mistaken for the entry point. `config.bat` derives the repo (the folder above
-`code-sync`), the bundle name `<repo>.bundle`, the upload folder (the repo's parent) and
-`%USERPROFILE%\Downloads`, so it can be copied into any repository unchanged.
+through **git bundles in a Google Drive folder**. Run `code-sync/sync.bat`, which asks Upload or Download
+and calls `_internal.bat UPLOAD|DOWNLOAD` (named so that it is not mistaken for the entry point).
+`config.bat` derives the repo (the folder above `code-sync`), the bundle name `<repo>.bundle`, the
+upload folder (the repo's parent, outside the work tree), `%USERPROFILE%\Downloads` for downloads, and
+the Drive folder URL. It can be copied into any repository unchanged. These are personal machine
+settings, so do not "fix" them. The older copies under scripts/sync were removed in `03b8378`.
 
 ## Related
 - `testing.md`, `android.md`, `known-issues.md`
