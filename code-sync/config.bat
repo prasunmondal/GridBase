@@ -25,7 +25,9 @@ set "UPLOAD_PROJECT_DIR=%REPO_ROOT%"
 REM Branch/ref to bundle
 set "UPLOAD_BRANCH_NAME=main"
 
-set "UPLOAD_BUNDLE_DIR=C:\Projects"
+REM Where the bundle is written: the folder containing the repository
+REM (e.g. C:\Projects for C:\Projects\GridBase), so it stays outside the work tree
+for %%I in ("%REPO_ROOT%\..") do set "UPLOAD_BUNDLE_DIR=%%~fI"
 
 REM ------------------------------------------------------------
 REM DOWNLOAD CONFIGURATION
