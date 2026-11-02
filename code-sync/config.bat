@@ -25,7 +25,7 @@ set "UPLOAD_PROJECT_DIR=%REPO_ROOT%"
 REM Branch/ref to bundle
 set "UPLOAD_BRANCH_NAME=main"
 
-set "UPLOAD _BUNDLE_DIR=C:\Projects"
+set "UPLOAD_BUNDLE_DIR=C:\Projects"
 
 REM ------------------------------------------------------------
 REM DOWNLOAD CONFIGURATION
@@ -35,7 +35,7 @@ REM Git project where the bundle will be applied
 set "DOWNLOAD_PROJECT_DIR=%REPO_ROOT%"
 
 REM Directory where the bundle will be downloaded
-set "DOWNLOAD_BUNDLE_DIR=C:\Users\prasu\Downloads"
+set "DOWNLOAD_BUNDLE_DIR=%USERPROFILE%\Downloads"
 
 REM Branch/ref to apply from the bundle
 set "DOWNLOAD_BRANCH_NAME=main"
