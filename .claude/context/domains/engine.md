@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-17
+last_verified: 2026-11-02
 sources: [appscript/backend/, appscript/deploy.bat, appscript/deploy.cmd, gridbase/src/test/emulator/engine-emulator.js]
 ---
 # Engine (Apps Script, `appscript/`)
@@ -42,6 +42,10 @@ Layers: `parser/`, `compiler/` + `execution/predicate/compiled/` (filter compila
 - Filters compare in JavaScript (e.g. `CompiledEqualsPredicate` compares `String(cell)` to
   `String(expected)`). The SDK shapes values for this (see `wire-contract.md`).
 - The engine cannot delete worksheets.
+- **Timing:** `ExecutionService.execute` stamps `executionTime` (ms) on each result: the first load of
+  its worksheet, then compile and run. The response's top-level `executionTime` covers every operation
+  plus `commitAll` and the flush. The lock wait and `openSpreadsheets` are not included. Older engines
+  sent only the last SELECT-path compile+execute time there, and 0 for a batch without a query.
 - GET_LAST_UPDATED returns Drive's `modifiedTime` of the whole spreadsheet. ADR-014 makes Drive
   **opt-in per deployment**, but the manifest committed in `f2a258a` enables it again (see
   `known-issues.md`). Without Drive, only this operation fails. It takes no lock and runs before the

@@ -34,10 +34,32 @@ class ExecutionService {
             of context.request.getOperations()
             ) {
 
-            this.executeOperation(
-                context,
-                operation
-            );
+            const resultsBefore =
+                context.response.results.length;
+
+            const run = Stopwatch.measure(() => {
+
+                this.executeOperation(
+                    context,
+                    operation
+                );
+
+            });
+
+            //
+            // Per-operation time in ms: loading the worksheet the first
+            // time it is touched, compiling and running the operation.
+            // The commit, flush and lock wait are shared by the whole
+            // request and are not included.
+            //
+            for (
+                let i = resultsBefore;
+                i < context.response.results.length;
+                i++
+            ) {
+                context.response.results[i].executionTime =
+                    run.elapsed;
+            }
 
         }
 

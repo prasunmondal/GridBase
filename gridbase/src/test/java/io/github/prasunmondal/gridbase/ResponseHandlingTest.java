@@ -11,6 +11,7 @@ import io.github.prasunmondal.gridbase.result.ClearResult;
 import io.github.prasunmondal.gridbase.result.ColumnsResult;
 import io.github.prasunmondal.gridbase.result.ExecutionResponse;
 import io.github.prasunmondal.gridbase.result.LastUpdatedResult;
+import io.github.prasunmondal.gridbase.result.OperationResult;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import io.github.prasunmondal.gridbase.result.WorksheetCreated;
@@ -200,6 +201,25 @@ class ResponseHandlingTest {
         assertThrows(TransportException.class, () -> client(t).worksheet("Orders").select().fetch());
     }
 
+    @Test
+    void perOperationTimeIsReadAndUnknownOnOldEngines() {
+        FakeTransport t = FakeTransport.replying(
+                "\"rowCount\":0,\"rows\":[],\"executionTime\":40",
+                "\"worksheet\":\"Orders\",\"columns\":[\"id\"],\"executionTime\":3",
+                "\"rowCount\":0,\"rows\":[]");
+        var db = client(t);
+        var orders = db.worksheet("Orders");
+        Batch batch = db.batch();
+        Ref<RowsResult> selected = batch.add(orders.select());
+        var columns = batch.add(orders.columns());
+        Ref<RowsResult> inserted = batch.add(orders.insert(java.util.Map.of("id", "N1")));
+        BatchResult result = batch.execute();
+
+        assertEquals(40L, result.get(selected).executionTimeMillis());
+        assertEquals(3L, columns.get().executionTimeMillis());
+        assertEquals(OperationResult.UNKNOWN_TIME, result.get(inserted).executionTimeMillis());
+    }
+
     // ------------------------------------------------------------------ parser and error classification
 
     private static final ResponseParser PARSER = new ResponseParser(new ObjectMapper(), ZoneOffset.UTC);
@@ -208,7 +228,7 @@ class ResponseHandlingTest {
     void sliceRenumbersAndRejectsOutOfRange() {
         String combined = "{\"success\":true,\"requestId\":\"R\",\"executionTime\":7,\"debug\":[\"d\"],\"results\":["
                 + "{\"operationId\":\"op-1\",\"rowCount\":1,\"rows\":[{\"n\":1}]},"
-                + "{\"operationId\":\"op-2\",\"rowCount\":1,\"rows\":[{\"n\":2}]},"
+                + "{\"operationId\":\"op-2\",\"rowCount\":1,\"rows\":[{\"n\":2}],\"executionTime\":9},"
                 + "{\"operationId\":\"op-3\",\"rowCount\":1,\"rows\":[{\"n\":3}]}]}";
 
         JsonNode slice = FakeTransport.json(PARSER.slice(combined, 1, 2));
@@ -218,6 +238,7 @@ class ResponseHandlingTest {
         assertEquals(2, slice.path("results").size());
         assertEquals("op-1", slice.path("results").get(0).path("operationId").asText());
         assertEquals(2, slice.path("results").get(0).path("rows").get(0).path("n").asInt());
+        assertEquals(9, slice.path("results").get(0).path("executionTime").asInt());
         assertEquals("op-2", slice.path("results").get(1).path("operationId").asText());
         assertEquals(3, slice.path("results").get(1).path("rows").get(0).path("n").asInt());
 

@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.integrationTests;
 
 import io.github.prasunmondal.gridbase.Batch;
+import io.github.prasunmondal.gridbase.BatchResult;
 import io.github.prasunmondal.gridbase.GridBase;
 import io.github.prasunmondal.gridbase.Ref;
 import io.github.prasunmondal.gridbase.Worksheet;
@@ -23,6 +24,7 @@ import static io.github.prasunmondal.gridbase.integrationTests.TestData.newEmplo
 import static io.github.prasunmondal.gridbase.query.Filters.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** {@link Batch}: one request, operations in order, row changes all-or-nothing, schema changes immediate. */
 class BatchIT {
@@ -68,6 +70,22 @@ class BatchIT {
         assertEquals(1, selected.get().count());
         assertEquals("Nikhil Verma", selected.get().rows().get(0).getString("Name"));
         assertEquals(EMPLOYEE_COUNT + 1, employeeCount());
+    }
+
+    @Test
+    @DisplayName("each operation reports its own engine time (needs an engine with per-operation timing)")
+    void eachOperationReportsItsTime() {
+        Batch batch = db.batch();
+        Ref<RowsResult> inserted = batch.add(employees.insert(newEmployee("E011", "Nikhil Verma")));
+        Ref<RowsResult> selected = batch.add(employees.select());
+        BatchResult result = batch.execute();
+
+        System.out.println("Insertion Time: " + inserted.get().executionTimeMillis() + "ms.");
+        System.out.println("Selection Time: " + selected.get().executionTimeMillis() + "ms.");
+        assertTrue(inserted.get().executionTimeMillis() >= 0);
+        assertTrue(selected.get().executionTimeMillis() >= 0);
+        assertTrue(result.executionTimeMillis()
+                >= inserted.get().executionTimeMillis() + selected.get().executionTimeMillis());
     }
 
     @Test

@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-10-14
+last_verified: 2026-11-02
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
@@ -30,6 +30,10 @@ back. It is the most compatibility-sensitive area, because consumers run engines
   message, JS type, stack, debug); an HTML page instead of JSON → `TransportException` naming the
   page title. `slice(body, offset, count)` cuts a combined reply per caller and renumbers results
   from `op-1`.
+- Timing in the reply: each `results[i].executionTime` (ms) becomes `OperationResult.executionTimeMillis()`.
+  It is absent on engines older than per-operation timing, which gives `UNKNOWN_TIME` (-1). The top-level
+  `executionTime` is `ExecutionResponse` / `BatchResult.executionTimeMillis()`. A slice keeps each
+  result's own time, but the top-level time is that of the whole combined request.
 
 ## Value conversion (`internal.JsCompat`), easy to break (ADR-003)
 The engine compares filter values in JavaScript:

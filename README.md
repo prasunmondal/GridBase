@@ -249,6 +249,24 @@ What the engine guarantees, and therefore what a batch means:
 - The final write itself is several Sheets calls; a crash midway (e.g. Apps Script timeout) can leave
   a partial write. It is batching, not a true transaction.
 
+### Timing
+
+```java
+BatchResult result = batch.execute();
+added.get().executionTimeMillis();   // engine time of this one operation
+result.executionTimeMillis();        // engine time of the whole request
+```
+
+- Each `OperationResult` has `executionTimeMillis()`, the engine's time for that operation. That
+  includes loading the worksheet if this operation touches it first, plus compiling and running it.
+- `BatchResult.executionTimeMillis()` is the time for all operations plus the final write and flush.
+- Neither includes the wait for the engine's write lock or the network. For the client-side round
+  trip, use `NetworkCallResult.elapsed()` in a `postNetworkCall` hook.
+- Requires a **redeployed engine**. An older engine sends no per-operation time, so
+  `executionTimeMillis()` returns `OperationResult.UNKNOWN_TIME` (-1). Its request time covers only
+  the last query's compile and run time, and is 0 when the batch has no query.
+- Fast operations can report 0 ms. Apps Script times them in whole milliseconds.
+
 ---
 
 ## Entities

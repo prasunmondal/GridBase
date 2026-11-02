@@ -63,6 +63,8 @@ class SheetEngine {
             const service =
                 new ExecutionService();
 
+            const started = Date.now();
+
             service.execute(context);
 
             //
@@ -82,8 +84,12 @@ class SheetEngine {
 
             }
 
+            //
+            // Every operation plus the commit and flush; the lock wait
+            // and opening the spreadsheets are not included.
+            //
             context.response.executionTime =
-                context.statistics.execution.totalTime;
+                Date.now() - started;
 
             return this.buildResponse(
                 context.response

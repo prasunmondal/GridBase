@@ -10,10 +10,16 @@ import java.util.function.Function;
  * For writes, {@code rows} are the rows affected (inserted/updated/deleted/cloned) and
  * {@code rowCount} is how many there were.
  */
-public record RowsResult(String operationId, int rowCount, List<Row> rows) implements OperationResult {
+public record RowsResult(String operationId, int rowCount, List<Row> rows, long executionTimeMillis)
+        implements OperationResult {
 
     public RowsResult {
         rows = Compat.copyOf(rows);
+    }
+
+    /** Without an engine-reported time ({@link OperationResult#UNKNOWN_TIME}). */
+    public RowsResult(String operationId, int rowCount, List<Row> rows) {
+        this(operationId, rowCount, rows, UNKNOWN_TIME);
     }
 
     /** Alias for {@link #rowCount()}, reads better for writes: {@code update(...).execute().count()}. */

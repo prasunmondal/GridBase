@@ -114,6 +114,9 @@ public final class ResponseParser {
     }
 
     private OperationResult result(Operation op, String id, JsonNode node) {
+        // Absent on engines older than per-operation timing.
+        long time = node.path("executionTime").canConvertToLong()
+                ? node.path("executionTime").asLong() : OperationResult.UNKNOWN_TIME;
         switch (op.type()) {
             case SELECT:
             case INSERT:
@@ -127,27 +130,27 @@ public final class ResponseParser {
                     rows.add(new Row(mapper.convertValue(r, ROW_TYPE), mapper, zone));
                 }
                 int count = node.has("rowCount") ? node.get("rowCount").asInt() : rows.size();
-                return new RowsResult(id, count, rows);
+                return new RowsResult(id, count, rows, time);
             }
             case CREATE_WORKSHEET:
                 return new WorksheetCreated(id, node.path("worksheet").asText(op.worksheet()),
-                        node.path("sheetId").asLong(-1));
+                        node.path("sheetId").asLong(-1), time);
             case GET_COLUMNS:
                 return new ColumnsResult(id, node.path("worksheet").asText(op.worksheet()),
-                        texts(node.path("columns")));
+                        texts(node.path("columns")), time);
             case ADD_COLUMNS:
                 return new AddColumnsResult(id, node.path("worksheet").asText(op.worksheet()),
                         texts(node.path("columns")), texts(node.path("skippedColumns")),
-                        node.path("startColumn").asInt(), node.path("count").asInt());
+                        node.path("startColumn").asInt(), node.path("count").asInt(), time);
             case CLEAR_WORKSHEET:
                 return new ClearResult(id, node.path("worksheet").asText(op.worksheet()),
-                        node.path("rowsCleared").asInt(), node.path("columnsCleared").asInt());
+                        node.path("rowsCleared").asInt(), node.path("columnsCleared").asInt(), time);
             case GET_LAST_UPDATED:
                 if (!node.path("lastUpdated").canConvertToLong()) {
                     throw new IllegalStateException("GET_LAST_UPDATED reply has no lastUpdated time");
                 }
                 return new LastUpdatedResult(id, node.path("spreadsheetId").asText(op.spreadsheetId()),
-                        Instant.ofEpochMilli(node.path("lastUpdated").asLong()));
+                        Instant.ofEpochMilli(node.path("lastUpdated").asLong()), time);
             default:
                 throw new IllegalStateException("Unhandled operation type " + op.type());
         }
