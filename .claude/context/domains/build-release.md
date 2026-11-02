@@ -46,5 +46,10 @@ single-file version of the same tool, from before it was split up. These are per
 settings, so do not "fix" the paths. The local edits to `config.bat` and `main.bat` that often show
 in `git status` are normal.
 
+`code-sync/` is the newer, repo-agnostic copy. Run `bundle.bat`; it calls `_internal.bat`, named so
+that it is not mistaken for the entry point. `config.bat` derives the repo (the folder above
+`code-sync`), the bundle name `<repo>.bundle`, the upload folder (the repo's parent) and
+`%USERPROFILE%\Downloads`, so it can be copied into any repository unchanged.
+
 ## Related
 - `testing.md`, `android.md`, `known-issues.md`

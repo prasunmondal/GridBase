@@ -27,7 +27,7 @@ echo.
 echo Starting UPLOAD...
 echo.
 
-call "%~dp0main.bat" UPLOAD
+call "%~dp0_internal.bat" UPLOAD
 
 exit /b %ERRORLEVEL%
 
@@ -38,6 +38,6 @@ echo.
 echo Starting DOWNLOAD...
 echo.
 
-call "%~dp0main.bat" DOWNLOAD
+call "%~dp0_internal.bat" DOWNLOAD
 
 exit /b %ERRORLEVEL%

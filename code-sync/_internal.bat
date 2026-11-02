@@ -17,8 +17,7 @@ echo ============================================================
 echo.
 echo Usage:
 echo.
-echo     main.bat UPLOAD
-echo     main.bat DOWNLOAD
+echo     bundle.bat  ^(run this; it calls _internal.bat^)
 echo.
 pause
 exit /b 1
