@@ -347,23 +347,29 @@ class StressIT {
 
         Stats insert = stats("wide insert of " + WIDE_CHUNK + " rows x " + WIDE_COLUMNS + " columns");
         try {
+            long insertStart = System.nanoTime();
             for (int from = 0; from < WIDE_ROWS; from += WIDE_CHUNK) {
+                int to = Math.min(from + WIDE_CHUNK, WIDE_ROWS);
                 List<Object> rows = new ArrayList<>();
-                for (int r = from; r < Math.min(from + WIDE_CHUNK, WIDE_ROWS); r++) {
+                for (int r = from; r < to; r++) {
                     rows.add(wideRow(r, columns));
                 }
                 insert.time(() -> withLockRetry(() -> wide.insertAll(rows).execute()));
+                progress("insert", to, WIDE_ROWS, insertStart);
             }
 
             List<Row> back = new ArrayList<>(WIDE_ROWS);
             Stats read = stats("wide select" + (WIDE_READ_CHUNK > 0 ? " of " + WIDE_READ_CHUNK + " rows" : " of the whole sheet"));
             if (WIDE_READ_CHUNK > 0) {
+                long readStart = System.nanoTime();
                 for (int from = 0; from < WIDE_ROWS; from += WIDE_READ_CHUNK) {
                     int lo = from;
                     int hi = Math.min(from + WIDE_READ_CHUNK, WIDE_ROWS) - 1;
                     back.addAll(read.time(() -> wide.select().where(between("Seq", lo, hi)).fetch()));
+                    progress("select", hi + 1, WIDE_ROWS, readStart);
                 }
             } else {
+                System.err.printf("[stress] wide select: reading all %d rows in one request (no progress until it returns)%n", WIDE_ROWS);
                 back.addAll(read.time(() -> wide.select().fetch()));
             }
 
@@ -385,6 +391,24 @@ class StressIT {
         } finally {
             stats("wide clear").time(() -> wide.clear().execute());
         }
+    }
+
+    /**
+     * Prints how far a phase of the wide test has got, with the time since it started and an
+     * estimate of the time left, extrapolated from the average time per row so far.
+     */
+    private static void progress(String phase, int doneRows, int totalRows, long phaseStart) {
+        long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - phaseStart);
+        long left = doneRows >= totalRows ? 0 : elapsed * (totalRows - doneRows) / doneRows;
+        System.err.printf("[stress] wide %s: %d/%d rows (%.1f%%), elapsed %s, ~%s left%n", phase, doneRows,
+                totalRows, 100.0 * doneRows / totalRows, duration(elapsed), duration(left));
+    }
+
+    /** Milliseconds as h:mm:ss, or m:ss under an hour. */
+    private static String duration(long millis) {
+        long s = millis / 1000;
+        return s >= 3600 ? String.format("%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+                : String.format("%d:%02d", s / 60, s % 60);
     }
 
     private static List<String> wideColumns() {
