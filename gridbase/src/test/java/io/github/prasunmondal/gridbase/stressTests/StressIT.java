@@ -1,6 +1,7 @@
 package io.github.prasunmondal.gridbase.stressTests;
 
 import io.github.prasunmondal.gridbase.Batch;
+import io.github.prasunmondal.gridbase.BatchResult;
 import io.github.prasunmondal.gridbase.GridBase;
 import io.github.prasunmondal.gridbase.RetryPolicy;
 import io.github.prasunmondal.gridbase.SheetProperties;
@@ -10,13 +11,16 @@ import io.github.prasunmondal.gridbase.integrationTests.Employee;
 import io.github.prasunmondal.gridbase.integrationTests.ItConfig;
 import io.github.prasunmondal.gridbase.integrationTests.TestData;
 import io.github.prasunmondal.gridbase.mapping.Repository;
+import io.github.prasunmondal.gridbase.result.OperationResult;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 import java.time.Duration;
@@ -37,6 +41,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 import static io.github.prasunmondal.gridbase.integrationTests.TestData.EMPLOYEE_COUNT;
 import static io.github.prasunmondal.gridbase.integrationTests.TestData.employee;
@@ -52,7 +58,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Load well beyond what the functional ITs send: large payloads, many clients over many rounds, hot
  * cells, async bursts and big batches. Each test checks the final sheet state, not only that calls
- * returned, and prints latency figures to stderr.
+ * returned. After each test, a summary of every timed operation (count, total, average, p50, p95, max,
+ * and the engine's own time where the result reports it) and the test's wall-clock time go to stderr;
+ * the run's total follows the last test.
  *
  * <p>Sized by system properties, so a quick run and a soak run use the same code:</p>
  * <pre>
@@ -81,15 +89,55 @@ class StressIT {
     /** Every row a stress test adds has a Name with this prefix, so it can be counted and found. */
     private static final String PREFIX = "Stress ";
 
+    /** Wall-clock time of every test in this run, for the total printed after the last one. */
+    private static final AtomicLong RUN_MILLIS = new AtomicLong();
+    private static final AtomicInteger RUN_TESTS = new AtomicInteger();
+
+    /** The operations timed by the current test, in the order they were first timed. */
+    private final List<Stats> recorded = Collections.synchronizedList(new ArrayList<>());
+    private long testStart;
+
     @BeforeEach
     void reset() {
         TestData.resetAll();
+        testStart = System.nanoTime();
+    }
+
+    /** Runs after a failing test too, so its timings are still shown. */
+    @AfterEach
+    void printSummary(TestInfo test) {
+        long wall = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - testStart);
+        RUN_MILLIS.addAndGet(wall);
+        RUN_TESTS.incrementAndGet();
+        StringBuilder out = new StringBuilder();
+        out.append(String.format("%n[stress] ==== %s ====%n", test.getDisplayName()));
+        out.append(String.format("[stress] %-44s %6s %9s %8s %8s %8s %8s %9s%n",
+                "operation", "n", "total", "avg", "p50", "p95", "max", "engine"));
+        synchronized (recorded) {
+            for (Stats stats : recorded) {
+                stats.appendRow(out);
+            }
+        }
+        out.append(String.format("[stress] test total: %s (wall clock; concurrent operations overlap)%n", ms(wall)));
+        System.err.print(out);
     }
 
     /** Leave the worksheet at its seed size rather than hundreds of stress rows. */
     @AfterAll
     static void cleanUp() {
         TestData.resetAll();
+        System.err.printf("%n[stress] ==== run total: %s over %d tests ====%n", ms(RUN_MILLIS.get()), RUN_TESTS.get());
+    }
+
+    /** A latency recorder for one kind of operation, included in this test's summary. */
+    private Stats stats(String label) {
+        Stats stats = new Stats(label);
+        recorded.add(stats);
+        return stats;
+    }
+
+    private static String ms(long millis) {
+        return millis >= 10_000 ? String.format("%.1fs", millis / 1000.0) : millis + "ms";
     }
 
     // ------------------------------------------------------------------ tests
@@ -101,13 +149,11 @@ class StressIT {
         for (int i = 0; i < ROWS; i++) {
             rows.add(newEmployee(id("B", i), PREFIX + "bulk " + i));
         }
-        Stats insert = new Stats("bulk insert of " + ROWS);
+        Stats insert = stats("bulk insert of " + ROWS);
         insert.time(() -> TestData.employeesSheet().insertAll(rows).execute());
 
-        Stats read = new Stats("bulk select of " + ROWS);
+        Stats read = stats("bulk select of " + ROWS);
         List<Row> back = read.time(() -> TestData.employeesSheet().select().where(startsWith("Name", PREFIX)).fetch());
-        insert.print();
-        read.print();
 
         assertEquals(ROWS, back.size());
         assertEquals(ROWS, new HashSet<>(ids(back)).size(), "duplicate ids read back");
@@ -118,8 +164,8 @@ class StressIT {
     @Test
     @DisplayName("many clients upserting and reading for many rounds end with every last write")
     void sustainedMixedLoadKeepsEveryLastWrite() throws Exception {
-        Stats writes = new Stats("upsert");
-        Stats reads = new Stats("select by key");
+        Stats writes = stats("upsert");
+        Stats reads = stats("select by key");
         List<Callable<?>> tasks = new ArrayList<>();
         for (int c = 0; c < CLIENTS; c++) {
             String key = id("M", c);
@@ -137,8 +183,6 @@ class StressIT {
             });
         }
         assertEquals(List.of(), runTogether(tasks));
-        writes.print();
-        reads.print();
 
         List<Row> rows = TestData.employeesSheet().select().where(startsWith("Name", PREFIX)).fetch();
         assertEquals(CLIENTS, rows.size(), "one row per key");
@@ -151,7 +195,7 @@ class StressIT {
     @Test
     @DisplayName("a hot cell appended to by every client keeps every part exactly once")
     void hotCellKeepsEveryAppendExactlyOnce() throws Exception {
-        Stats appends = new Stats("append to one cell");
+        Stats appends = stats("append to one cell");
         List<Callable<?>> tasks = new ArrayList<>();
         for (int c = 0; c < CLIENTS; c++) {
             int client = c;
@@ -166,7 +210,6 @@ class StressIT {
             });
         }
         assertEquals(List.of(), runTogether(tasks));
-        appends.print();
 
         String notes = employee("E003").getString("Notes");
         for (int c = 0; c < CLIENTS; c++) {
@@ -186,16 +229,28 @@ class StressIT {
         Worksheet ws = employeesOf(client);
         int burst = CLIENTS * ROUNDS;
 
+        Stats insertCalls = stats("async insert");
+        Stats insertBurst = stats("async insert burst of " + burst);
+        Stats selectCalls = stats("async select by key");
+        Stats selectBurst = stats("async select burst of " + burst);
+
         List<CompletableFuture<RowsResult>> inserts = new ArrayList<>();
-        for (int i = 0; i < burst; i++) {
-            inserts.add(ws.insert(newEmployee(id("A", i), PREFIX + "async " + i)).executeAsync());
-        }
-        CompletableFuture.allOf(inserts.toArray(new CompletableFuture[0])).get(10, TimeUnit.MINUTES);
+        insertBurst.time(() -> {
+            for (int i = 0; i < burst; i++) {
+                Object row = newEmployee(id("A", i), PREFIX + "async " + i);
+                inserts.add(insertCalls.timeAsync(() -> ws.insert(row).executeAsync()));
+            }
+            return CompletableFuture.allOf(inserts.toArray(new CompletableFuture[0])).get(10, TimeUnit.MINUTES);
+        });
 
         List<CompletableFuture<List<Row>>> selects = new ArrayList<>();
-        for (int i = 0; i < burst; i++) {
-            selects.add(ws.select().where(eq("EmployeeId", id("A", i))).fetchAsync());
-        }
+        selectBurst.time(() -> {
+            for (int i = 0; i < burst; i++) {
+                String key = id("A", i);
+                selects.add(selectCalls.timeAsync(() -> ws.select().where(eq("EmployeeId", key)).fetchAsync()));
+            }
+            return CompletableFuture.allOf(selects.toArray(new CompletableFuture[0])).get(10, TimeUnit.MINUTES);
+        });
         for (int i = 0; i < burst; i++) {
             List<Row> rows = selects.get(i).get(10, TimeUnit.MINUTES);
             assertEquals(1, rows.size(), id("A", i));
@@ -218,9 +273,8 @@ class StressIT {
                 batch.add(employees.delete().where(eq("EmployeeId", key)));
             }
         }
-        Stats stats = new Stats("batch of " + (ops * 2 + ops / 2) + " operations");
+        Stats stats = stats("batch of " + (ops * 2 + ops / 2) + " operations");
         stats.time(batch::execute);
-        stats.print();
 
         List<Row> left = employees.select().where(startsWith("Name", PREFIX)).orderBy("EmployeeId").fetch();
         assertEquals((ops + 1) / 2, left.size());
@@ -240,6 +294,8 @@ class StressIT {
                 .postNetworkCall(result -> httpCalls.incrementAndGet())
                 .build();
         Repository<Employee> repo = counted.repository(Employee.class);
+        Stats upserts = stats("queued repository upsert");
+        Stats finds = stats("queued repository findById");
 
         int threads = CLIENTS * 2;
         List<Callable<?>> tasks = new ArrayList<>();
@@ -248,8 +304,11 @@ class StressIT {
             tasks.add(() -> {
                 for (int round = 0; round < ROUNDS; round++) {
                     Employee e = Employee.of(key, PREFIX + key, "Engineering", 50000 + round, LocalDate.of(2026, 1, 1));
-                    repo.upsert(e);
-                    assertEquals(50000L + round, repo.findById(key).orElseThrow().salary, key);
+                    upserts.time(() -> {
+                        repo.upsert(e);
+                        return null;
+                    });
+                    assertEquals(50000L + round, finds.time(() -> repo.findById(key)).orElseThrow().salary, key);
                 }
                 return null;
             });
@@ -275,16 +334,18 @@ class StressIT {
      */
     @Test
     @Tag("wide")
-    @EnabledIfSystemProperty(named = "hs.stress.wide", matches = "true")
+//    @EnabledIfSystemProperty(named = "hs.stress.wide", matches = "true")
     @DisplayName("a wide worksheet of many rows and columns is written and read back cell for cell")
     void wideWorksheetWritesAndReadsBackEveryCell() {
         Worksheet wide = ItConfig.db().worksheet(WIDE_SHEET);
         List<String> columns = wideColumns();
-        TestData.createIfMissing(wide);
-        wide.addColumns(columns.toArray(String[]::new)).skipExisting().execute();
-        wide.clear().execute();
+        stats("wide create, add columns and clear").time(() -> {
+            TestData.createIfMissing(wide);
+            wide.addColumns(columns.toArray(String[]::new)).skipExisting().execute();
+            return wide.clear().execute();
+        });
 
-        Stats insert = new Stats("wide insert of " + WIDE_CHUNK + " rows x " + WIDE_COLUMNS + " columns");
+        Stats insert = stats("wide insert of " + WIDE_CHUNK + " rows x " + WIDE_COLUMNS + " columns");
         try {
             for (int from = 0; from < WIDE_ROWS; from += WIDE_CHUNK) {
                 List<Object> rows = new ArrayList<>();
@@ -293,10 +354,9 @@ class StressIT {
                 }
                 insert.time(() -> withLockRetry(() -> wide.insertAll(rows).execute()));
             }
-            insert.print();
 
             List<Row> back = new ArrayList<>(WIDE_ROWS);
-            Stats read = new Stats("wide select" + (WIDE_READ_CHUNK > 0 ? " of " + WIDE_READ_CHUNK + " rows" : " of the whole sheet"));
+            Stats read = stats("wide select" + (WIDE_READ_CHUNK > 0 ? " of " + WIDE_READ_CHUNK + " rows" : " of the whole sheet"));
             if (WIDE_READ_CHUNK > 0) {
                 for (int from = 0; from < WIDE_ROWS; from += WIDE_READ_CHUNK) {
                     int lo = from;
@@ -306,7 +366,6 @@ class StressIT {
             } else {
                 back.addAll(read.time(() -> wide.select().fetch()));
             }
-            read.print();
 
             assertEquals(WIDE_ROWS, back.size(), "rows read back");
             back.sort((a, b) -> Long.compare(a.getLong("Seq"), b.getLong("Seq")));
@@ -324,7 +383,7 @@ class StressIT {
                 }
             }
         } finally {
-            wide.clear().execute();
+            stats("wide clear").time(() -> wide.clear().execute());
         }
     }
 
@@ -409,10 +468,16 @@ class StressIT {
         return failures;
     }
 
-    /** Thread-safe latency recorder; prints count, p50, p95 and max to stderr. */
+    /**
+     * Thread-safe latency recorder for one kind of operation. Keeps the client-side time of every call
+     * and, when the result reports it, the engine's own time (an {@link OperationResult} or a
+     * {@link BatchResult}; engines older than per-operation timing report none, shown as "-").
+     */
     private static final class Stats {
         private final String label;
         private final List<Long> millis = Collections.synchronizedList(new ArrayList<>());
+        private final AtomicLong engineMillis = new AtomicLong();
+        private final AtomicInteger engineReports = new AtomicInteger();
 
         Stats(String label) {
             this.label = label;
@@ -421,7 +486,9 @@ class StressIT {
         <T> T time(Callable<T> call) {
             long start = System.nanoTime();
             try {
-                return call.call();
+                T result = call.call();
+                recordEngine(result);
+                return result;
             } catch (RuntimeException e) {
                 throw e;
             } catch (Exception e) {
@@ -431,18 +498,49 @@ class StressIT {
             }
         }
 
-        void print() {
+        /** Times an async call from when it is started until its future completes. */
+        <T> CompletableFuture<T> timeAsync(Supplier<CompletableFuture<T>> call) {
+            long start = System.nanoTime();
+            return call.get().whenComplete((result, error) -> {
+                millis.add(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+                if (error == null) {
+                    recordEngine(result);
+                }
+            });
+        }
+
+        private void recordEngine(Object result) {
+            long engine = OperationResult.UNKNOWN_TIME;
+            if (result instanceof OperationResult op) {
+                engine = op.executionTimeMillis();
+            } else if (result instanceof BatchResult batch) {
+                engine = batch.executionTimeMillis();
+            }
+            if (engine >= 0) {
+                engineMillis.addAndGet(engine);
+                engineReports.incrementAndGet();
+            }
+        }
+
+        void appendRow(StringBuilder out) {
             List<Long> sorted;
             synchronized (millis) {
                 sorted = new ArrayList<>(millis);
             }
             if (sorted.isEmpty()) {
+                out.append(String.format("[stress] %-44s %6d%n", label, 0));
                 return;
             }
             Collections.sort(sorted);
-            System.err.printf("[stress] %s: n=%d p50=%dms p95=%dms max=%dms%n", label, sorted.size(),
-                    sorted.get(sorted.size() / 2), sorted.get((int) Math.ceil(sorted.size() * 0.95) - 1),
-                    sorted.get(sorted.size() - 1));
+            long total = 0;
+            for (long m : sorted) {
+                total += m;
+            }
+            String engine = engineReports.get() == 0 ? "-" : ms(engineMillis.get());
+            out.append(String.format("[stress] %-44s %6d %9s %8s %8s %8s %8s %9s%n", label, sorted.size(),
+                    ms(total), ms(total / sorted.size()), ms(sorted.get(sorted.size() / 2)),
+                    ms(sorted.get((int) Math.ceil(sorted.size() * 0.95) - 1)), ms(sorted.get(sorted.size() - 1)),
+                    engine));
         }
     }
 }

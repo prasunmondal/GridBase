@@ -51,7 +51,7 @@ node gridbase/src/test/emulator/engine-emulator.js appscript [port]   # then -Dh
   deployment: the emulator is serial and does not evaluate formulas. `SchemaOperationsIT.lastUpdatedWithoutDrive…`
   aborts unless the engine lacks Drive (`HS_DRIVE=off`).
 - `StressIT` (package `stressTests`, `@Tag("stress")`; `-Dtest='*IT'` still selects it) is sized by `-Dhs.stress.clients|rounds|rows|writeAttempts` (defaults 8/5/500/8),
-  prints p50/p95/max latencies to stderr, and retries writes only on retryable lock timeouts. It runs on the
+  prints, after each test, a per-operation summary (n, total, avg, p50, p95, max, engine time from the result) and the test's wall-clock time to stderr, plus the run total in `@AfterAll`; it retries writes only on retryable lock timeouts. It runs on the
   emulator, but contention only happens on a live deployment.
   Its wide test (`IT_StressWide`, default 100,000 rows x 50 columns) runs only with `-Dhs.stress.wide=true`;
   `hs.stress.wideRows|wideColumns|wideChunk|wideReadChunk` size it. Above 26 columns it fails until the engine
