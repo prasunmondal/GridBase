@@ -12,6 +12,9 @@ import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -22,13 +25,18 @@ import java.util.regex.Pattern;
  *
  * <p>Apps Script answers a POST with a {@code 302} to a one-time {@code script.googleusercontent.com}
  * URL that must be fetched with GET. Redirects are followed manually so that behaviour is explicit and
- * the {@code Authorization} header is never forwarded to a different host.</p>
+ * the {@code Authorization} header is never forwarded to a different host. A 301/302/303 that leads to
+ * another script {@code /exec} address (not the echo link) is followed with the same POST, since a GET
+ * there would reach the engine's {@code doGet}.</p>
  *
  * <p>Built on {@link HttpURLConnection} so it runs on both the JDK and Android.</p>
  */
 public final class HttpTransport implements Transport {
 
     private static final int MAX_REDIRECTS = 5;
+    private static final String SCRIPT_HOST = "script.google.com";
+    /** What {@code doGet} of a deployed engine answers. */
+    private static final String ENGINE_GET_REPLY = "SheetEngine Running";
     private static final Pattern HTML_TITLE = Pattern.compile("<title>(.*?)</title>",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
@@ -66,7 +74,9 @@ public final class HttpTransport implements Transport {
         URI current = endpoint;
         byte[] body = json;
         String auth = authorization;
+        List<String> hops = new ArrayList<>();
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+            hops.add((body != null ? "POST " : "GET ") + hostAndPath(current));
             Response response = exchange(current, body, auth);
             int status = response.status;
 
@@ -76,7 +86,16 @@ public final class HttpTransport implements Transport {
                 }
                 URI next = current.resolve(response.location);
                 boolean sameHost = Objects.equals(next.getHost(), endpoint.getHost());
-                body = (status == 307 || status == 308) ? json : null;
+                if (status == 307 || status == 308) {
+                    body = json;
+                } else if (body != null && isScriptAddress(next)) {
+                    // A 301/302/303 from /exec to another /exec (e.g. /macros/u/0/s/<id>/exec or a load-balancing
+                    // hop) means the first hop never ran the script, so POSTing the same body again is safe even
+                    // for writes. A GET there would run doGet instead of doPost.
+                    body = json;
+                } else {
+                    body = null;     // Apps Script's usual 302 to the one-time googleusercontent echo link
+                }
                 auth = sameHost ? authorization : null;
                 current = next;
                 continue;
@@ -85,6 +104,9 @@ public final class HttpTransport implements Transport {
             if (status == 200) {
                 if (looksLikeHtml(response.body)) {
                     throw new TransportException(htmlHint(response.body), status, null, false);
+                }
+                if (!looksLikeJson(response.body)) {
+                    throw new TransportException(notJsonHint(response.body, hops), status, null, true);
                 }
                 return response.body;
             }
@@ -184,6 +206,46 @@ public final class HttpTransport implements Transport {
 
     private static boolean isRedirect(int status) {
         return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    /**
+     * True for a script web-app address: a path ending in {@code /exec} on {@code script.google.com} or on the
+     * configured endpoint's host (a proxy or local engine). Never true for the googleusercontent echo link.
+     */
+    private boolean isScriptAddress(URI uri) {
+        String host = uri.getHost();
+        String path = uri.getPath();
+        if (host == null || path == null || !path.endsWith("/exec")) {
+            return false;
+        }
+        String h = host.toLowerCase(Locale.ROOT);
+        return !h.endsWith("googleusercontent.com")
+                && (h.equals(SCRIPT_HOST) || h.equalsIgnoreCase(String.valueOf(endpoint.getHost())));
+    }
+
+    /** Host and path only: the echo link's query string carries a one-time token. */
+    private static String hostAndPath(URI uri) {
+        return uri.getHost() + (uri.getPath() == null ? "" : uri.getPath());
+    }
+
+    /** The engine always answers with a JSON object; anything else did not come from {@code doPost}. */
+    private static boolean looksLikeJson(String body) {
+        if (body == null) {
+            return false;
+        }
+        String trimmed = Compat.stripLeading(body);
+        return trimmed.startsWith("{") || trimmed.startsWith("[");
+    }
+
+    private static String notJsonHint(String body, List<String> hops) {
+        String trimmed = body == null ? "" : body.trim();
+        String shown = trimmed.length() > 80 ? trimmed.substring(0, 80) + "..." : trimmed;
+        String what = ENGINE_GET_REPLY.equals(trimmed)
+                ? "The request reached the engine as GET instead of POST (doGet replied \"" + ENGINE_GET_REPLY + "\")"
+                : "Expected JSON from the engine but received \"" + shown + "\"; the request probably reached the"
+                + " engine as GET instead of POST";
+        return what + ". Hops: " + String.join(" -> ", hops)
+                + ". Usually a transient Google redirect; the request can be retried.";
     }
 
     private static boolean looksLikeHtml(String body) {

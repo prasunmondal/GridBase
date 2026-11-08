@@ -9,7 +9,7 @@
     <!-- Maven Coordinates -->
     <groupId>io.github.prasunmondal</groupId>
     <artifactId>gridbase-parent</artifactId>
-    <version>0.2.0</version>
+    <version>2.0.5</version>
     <packaging>pom</packaging>
 
     <!-- Project Metadata -->

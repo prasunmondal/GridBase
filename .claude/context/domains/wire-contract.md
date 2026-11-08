@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-11-02
+last_verified: 2026-11-08
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
@@ -48,15 +48,20 @@ Tests: `JsCompatTest`, `SelectQueryIT`.
 
 ## Transport (`transport/`)
 - `Transport` has a single method. `HttpTransport` (on `HttpURLConnection`, ADR-002) POSTs to
-  `/exec` and follows Apps Script's 302 to `script.googleusercontent.com` with a GET. It **never
-  forwards `Authorization` to another host** (ADR-008).
+  `/exec` and follows Apps Script's 302 to `script.googleusercontent.com` with a GET. A 301/302/303 to
+  another script `/exec` (host `script.google.com` or the endpoint's host) is re-POSTed with the same
+  body: the first hop never ran the script, so this is safe for writes. It **never forwards
+  `Authorization` to another host** (ADR-008).
+- A 200 body that is neither HTML nor JSON (e.g. `doGet`'s `"SheetEngine Running"`) means the request
+  reached the engine as GET: retryable `TransportException` listing the hops (host + path, no query).
+  A JSON-looking body that fails to parse stays a non-retryable `ResponseParser` error.
 - Auth is optional: an OAuth bearer token comes from a supplier. Deployments with "Anyone" access
   need none.
 - Tests stub the transport with `FakeTransport`. `HttpTransportTest` runs the redirect flow against
   an in-process server.
 
 ## Retries (`RetryPolicy`, ADR-004)
-- Only `isRetryable()` failures are retried: I/O errors, timeouts, HTTP 408/429/5xx, Apps Script
+- Only `isRetryable()` failures are retried: I/O errors, timeouts, HTTP 408/429/5xx, non-JSON 200 replies, Apps Script
   "too many times" and lock-timeout errors. A **daily-quota error is never retried.**
 - By default only read-only requests (SELECT / GET_COLUMNS / GET_LAST_UPDATED) are retried. Writes are retried only
   with `retryingWrites(true)`, because a timed-out write may already be committed.

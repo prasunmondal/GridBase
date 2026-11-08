@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -251,6 +252,102 @@ class HttpTransportTest {
             HttpTransport.builder(s.base() + "/exec").build().send("{}");
             HttpTransport.builder(s.base() + "/exec").userAgent("my-app/2.0").build().send("{}");
             assertEquals(List.of("gridbase-sdk/0.1", "my-app/2.0"), s.log);
+        }
+    }
+
+    @Test
+    void redirectToAnotherExecRepostsSameBody() throws Exception {
+        try (Server s = new Server()) {
+            int port = s.http.getAddress().getPort();
+            s.http.createContext("/macros/s/DEP/exec", ex -> {
+                s.log.add(ex.getRequestMethod() + " exec auth=" + ex.getRequestHeaders().getFirst("Authorization")
+                        + " body=" + new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                ex.getResponseHeaders().add("Location", "/macros/u/0/s/DEP/exec");
+                reply(ex, 302, null, "");
+            });
+            s.http.createContext("/macros/u/0/s/DEP/exec", ex -> {
+                s.log.add(ex.getRequestMethod() + " u0 auth=" + ex.getRequestHeaders().getFirst("Authorization")
+                        + " body=" + new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                ex.getResponseHeaders().add("Location", "http://localhost:" + port + "/macros/echo?user_content_key=k");
+                reply(ex, 302, null, "");
+            });
+            s.http.createContext("/macros/echo", ex -> {
+                s.log.add(ex.getRequestMethod() + " echo auth=" + ex.getRequestHeaders().getFirst("Authorization"));
+                reply(ex, 200, "application/json", "{\"ok\":true}");
+            });
+            s.http.start();
+
+            HttpTransport t = HttpTransport.builder(s.base() + "/macros/s/DEP/exec")
+                    .accessToken(() -> "tok").build();
+            assertEquals("{\"ok\":true}", t.send("{\"q\":2}"));
+            assertEquals(List.of(
+                    "POST exec auth=Bearer tok body={\"q\":2}",
+                    "POST u0 auth=Bearer tok body={\"q\":2}",          // same host: body and auth kept
+                    "GET echo auth=null"), s.log);                       // echo link on another host: GET, no auth
+        }
+    }
+
+    @Test
+    void doGetReplyIsRetryableAndListsHops() throws Exception {
+        try (Server s = new Server()) {
+            int port = s.http.getAddress().getPort();
+            s.http.createContext("/macros/s/DEP/exec", ex -> {
+                // A host that is neither script.google.com nor the endpoint host: followed with GET, as before
+                ex.getResponseHeaders().add("Location", "http://localhost:" + port + "/macros/u/0/s/DEP/exec?token=secret");
+                reply(ex, 302, null, "");
+            });
+            s.http.createContext("/macros/u/0/s/DEP/exec", ex -> {
+                s.log.add(ex.getRequestMethod() + " auth=" + ex.getRequestHeaders().getFirst("Authorization"));
+                reply(ex, 200, "text/plain", "SheetEngine Running");
+            });
+            s.http.createContext("/other", ex -> reply(ex, 200, "text/plain", "hello"));
+            s.http.createContext("/badjson", ex -> reply(ex, 200, "application/json", "{not json"));
+            s.http.start();
+
+            TransportException e = assertThrows(TransportException.class, () -> HttpTransport
+                    .builder(s.base() + "/macros/s/DEP/exec").accessToken(() -> "tok").build().send("{}"));
+            assertTrue(e.isRetryable());
+            assertEquals(200, e.getHttpStatus());
+            assertTrue(e.getMessage().contains("reached the engine as GET instead of POST"), e.getMessage());
+            assertTrue(e.getMessage().contains(
+                    "POST 127.0.0.1/macros/s/DEP/exec -> GET localhost/macros/u/0/s/DEP/exec"), e.getMessage());
+            assertFalse(e.getMessage().contains("secret"));
+            assertEquals(List.of("GET auth=null"), s.log);
+
+            TransportException other = assertThrows(TransportException.class,
+                    () -> HttpTransport.builder(s.base() + "/other").build().send("{}"));
+            assertTrue(other.isRetryable());
+            assertTrue(other.getMessage().contains("\"hello\""), other.getMessage());
+
+            // A JSON-looking body passes the transport; ResponseParser keeps its parse failure non-retryable
+            assertEquals("{not json", HttpTransport.builder(s.base() + "/badjson").build().send("{}"));
+        }
+    }
+
+    @Test
+    void doGetReplyRetriesReadsButNeverWrites() throws Exception {
+        try (Server s = new Server()) {
+            AtomicInteger calls = new AtomicInteger();
+            s.http.createContext("/exec", ex -> {
+                ex.getRequestBody().readAllBytes();
+                if (calls.incrementAndGet() % 2 == 1) {
+                    reply(ex, 200, "text/plain", "SheetEngine Running");
+                } else {
+                    reply(ex, 200, "application/json", "{\"success\":true,\"results\":[{\"operationId\":\"op-1\","
+                            + "\"worksheet\":\"Orders\",\"columns\":[\"id\"]}]}");
+                }
+            });
+            s.http.start();
+            GridBase db = GridBase.builder().endpoint(s.base() + "/exec").defaultSpreadsheetId("S")
+                    .retryPolicy(RetryPolicy.of(3, Duration.ZERO)).build();
+
+            assertEquals(List.of("id"), db.worksheet("Orders").columns().fetch());
+            assertEquals(2, calls.getAndSet(0));
+
+            TransportException write = assertThrows(TransportException.class,
+                    () -> db.worksheet("Orders").insert(Map.of("id", "1")).execute());
+            assertTrue(write.isRetryable());
+            assertEquals(1, calls.get());
         }
     }
 }

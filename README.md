@@ -105,15 +105,15 @@ Two artifacts, same version:
 Maven Central:
 
 ```kotlin
-implementation("io.github.prasunmondal:gridbase:0.2.0")
-implementation("io.github.prasunmondal:gridbase-android:0.2.0")   // Android apps
+implementation("io.github.prasunmondal:gridbase:2.0.5")
+implementation("io.github.prasunmondal:gridbase-android:2.0.5")   // Android apps
 ```
 
 ```xml
 <dependency>
   <groupId>io.github.prasunmondal</groupId>
   <artifactId>gridbase</artifactId>
-  <version>0.2.0</version>
+  <version>2.0.5</version>
 </dependency>
 ```
 
@@ -926,10 +926,16 @@ Deploying with clasp does not show the consent screen.
 ### Retries
 
 `RetryPolicy.defaults()` retries 3 times with back-off, **only for read-only requests** (SELECT,
-GET_COLUMNS, GET_LAST_UPDATED), and only for retryable failures: I/O errors, timeouts, HTTP 408/429/5xx, and engine
-errors like *"too many times in a short time"* or lock timeouts. A daily-quota error is never retried.
+GET_COLUMNS, GET_LAST_UPDATED), and only for retryable failures: I/O errors, timeouts, HTTP 408/429/5xx, a
+non-JSON reply such as the engine's `doGet` text *"SheetEngine Running"* (the request reached the engine as GET), and
+engine errors like *"too many times in a short time"* or lock timeouts. A daily-quota error is never retried.
 Writes are not retried because a timed-out write may already be committed; opt in with
 `RetryPolicy.defaults().retryingWrites(true)` only if duplicates are acceptable.
+
+Redirects: Apps Script answers a POST with a `302` to a one-time `script.googleusercontent.com` link, which the SDK
+fetches with GET. When Google instead redirects the POST to another `/exec` address (for example
+`/macros/u/0/s/<id>/exec`), the SDK sends the same POST again, since the script did not run on the first hop.
+`Authorization` is never sent to a different host.
 
 ---
 
