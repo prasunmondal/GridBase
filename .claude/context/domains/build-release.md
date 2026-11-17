@@ -1,7 +1,7 @@
 ---
 status: VERIFIED
 last_verified: 2026-11-02
-sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, jitpack.yml, code-sync/]
+sources: [pom.xml, gridbase/pom.xml, gridbase-android/pom.xml, jitpack.yml, code-sync/, scripts/cookbook/, .github/workflows/]
 asserts:
   - { file: pom.xml, contains: "central-publishing-maven-plugin" }
   - { file: pom.xml, contains: "<keyname>E017E18C9699E75C</keyname>" }
@@ -40,6 +40,15 @@ they agree. The README "Install" snippets repeat the version too.
 
 Steps 4–5 are reconstructed from `pom.xml` and the README and are not yet confirmed by the
 maintainer.
+
+## Cookbook site (GitHub Pages)
+`COOKBOOK.md` is the only source. `scripts/cookbook/cookbook.html` is the page template plus a generated copy of
+that Markdown, which the browser renders with marked: run `node scripts/cookbook/build-cookbook.js` after
+editing the cookbook (`--check` reports a stale page). The script drops the title, Contents list and `---`
+lines, points repository links at GitHub, and takes the version from the root pom.
+`.github/workflows/cookbook-pages.yml` rebuilds and deploys it on pushes to `main`, served at
+`https://prasunmondal.github.io/GridBase/`. Pages must be set to *Source: GitHub Actions* once in the
+repository settings.
 
 ## Developer workflow: git-bundle sync (`code-sync/`)
 The maintainer moves the repository between machines (`C:\Projects\GridBase` ⇄ `D:\Projects\GridBase`)
