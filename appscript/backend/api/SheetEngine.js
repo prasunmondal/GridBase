@@ -76,7 +76,14 @@ class SheetEngine {
             //
             if (lock) {
 
-                SpreadsheetApp.flush();
+                const flushed = Stopwatch.measure(() =>
+                    SpreadsheetApp.flush()
+                );
+
+                if (context.response.commit) {
+                    context.response.commit.flushTime =
+                        flushed.elapsed;
+                }
 
                 lock.releaseLock();
 

@@ -1,10 +1,12 @@
 package io.github.prasunmondal.gridbase;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.github.prasunmondal.gridbase.result.CommitTiming;
 import io.github.prasunmondal.gridbase.result.ExecutionResponse;
 import io.github.prasunmondal.gridbase.result.OperationResult;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Results of an executed {@link Batch}, in the order operations were added. */
 public final class BatchResult {
@@ -34,6 +36,14 @@ public final class BatchResult {
 
     public long executionTimeMillis() {
         return response.executionTimeMillis();
+    }
+
+    /**
+     * How the commit and flush part of {@link #executionTimeMillis()} split up, per worksheet.
+     * Empty when the engine deployment predates commit timing.
+     */
+    public Optional<CommitTiming> commitTiming() {
+        return Optional.ofNullable(response.commitTiming());
     }
 
     public JsonNode debug() {

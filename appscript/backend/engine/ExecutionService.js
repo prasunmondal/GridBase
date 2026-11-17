@@ -63,7 +63,8 @@ class ExecutionService {
 
         }
 
-        context.provider.commitAll();
+        context.response.commit =
+            context.provider.commitAll();
 
     }
 

@@ -266,6 +266,13 @@ result.executionTimeMillis();        // engine time of the whole request
   `executionTimeMillis()` returns `OperationResult.UNKNOWN_TIME` (-1). Its request time covers only
   the last query's compile and run time, and is 0 when the batch has no query.
 - Fast operations can report 0 ms. Apps Script times them in whole milliseconds.
+- `BatchResult.commitTiming()` splits up the write-and-flush part: `prepareTimeMillis()` (sheet
+  reads the commit needs), `writeTimeMillis()`, `flushTimeMillis()`, and per worksheet the rows
+  inserted, updated and deleted with its write time. Apps Script buffers writes, so the spreadsheet
+  applies them, and recalculates the formulas that depend on them, during the flush. A slow commit
+  usually shows up as `flushTimeMillis()`, and the usual cause is heavy formulas (whole-column
+  ranges, volatile functions, IMPORTRANGE) that read the written sheets. Empty on engines deployed
+  before commit timing.
 
 ---
 

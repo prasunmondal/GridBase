@@ -10,6 +10,10 @@ class ApiResponse {
 
         this.results = [];
 
+        // Commit timing, set by ExecutionService (see
+        // GoogleSheetsProvider.commitAll); null until the commit ran.
+        this.commit = null;
+
         this.errors = [];
 
         this.debug = [];

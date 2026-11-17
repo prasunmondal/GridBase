@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-11-02
+last_verified: 2026-11-17
 sources: [appscript/backend/, appscript/deploy.bat, appscript/deploy.cmd, gridbase/src/test/emulator/engine-emulator.js]
 ---
 # Engine (Apps Script, `appscript/`)
@@ -46,6 +46,13 @@ Layers: `parser/`, `compiler/` + `execution/predicate/compiled/` (filter compila
   its worksheet, then compile and run. The response's top-level `executionTime` covers every operation
   plus `commitAll` and the flush. The lock wait and `openSpreadsheets` are not included. Older engines
   sent only the last SELECT-path compile+execute time there, and 0 for a batch without a query.
+  The response's `commit` object (`prepareTime`, `writeTime`, `flushTime`, `worksheets[]` with
+  `spreadsheetId`, `worksheet`, `cleared`, `inserted`, `updated`, `deleted`, `time`) splits that
+  commit+flush part; `flushTime` is set by `SheetEngine` and stays 0 without the lock.
+- **Commit ordering:** `commitAll` first runs `WorksheetCommitter.prepare` for every changed worksheet
+  (all sheet reads: `getLastRow`, `getLastColumn` for a clear, `getMaxRows`), then `write` for each
+  (writes only). A read after a buffered write makes Apps Script send that write and wait for the
+  spreadsheet (and its recalculation) per worksheet; keep commit reads out of the write phase.
 - GET_LAST_UPDATED returns Drive's `modifiedTime` of the whole spreadsheet. ADR-014 makes Drive
   **opt-in per deployment**, but the manifest committed in `f2a258a` enables it again (see
   `known-issues.md`). Without Drive, only this operation fails. It takes no lock and runs before the

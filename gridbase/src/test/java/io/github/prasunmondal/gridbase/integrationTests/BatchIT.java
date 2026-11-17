@@ -6,6 +6,7 @@ import io.github.prasunmondal.gridbase.GridBase;
 import io.github.prasunmondal.gridbase.Ref;
 import io.github.prasunmondal.gridbase.Worksheet;
 import io.github.prasunmondal.gridbase.exception.ServerException;
+import io.github.prasunmondal.gridbase.result.CommitTiming;
 import io.github.prasunmondal.gridbase.result.Row;
 import io.github.prasunmondal.gridbase.result.RowsResult;
 import org.junit.jupiter.api.BeforeEach;
@@ -86,6 +87,30 @@ class BatchIT {
         assertTrue(selected.get().executionTimeMillis() >= 0);
         assertTrue(result.executionTimeMillis()
                 >= inserted.get().executionTimeMillis() + selected.get().executionTimeMillis());
+    }
+
+    @Test
+    @DisplayName("commit timing counts each worksheet's changes (needs an engine with commit timing)")
+    void commitTimingReportsEachWorksheet() {
+        Batch batch = db.batch();
+        batch.add(employees.insert(newEmployee("E011", "Nikhil Verma")));
+        batch.add(employees.insert(newEmployee("E012", "Ritu Das")));
+        batch.add(employees.update().set("City", "Pune").where(eq("EmployeeId", "E001")));
+        batch.add(employees.delete().where(eq("EmployeeId", "E002")));
+        batch.add(TestData.departmentsSheet().select());
+        BatchResult result = batch.execute();
+
+        CommitTiming timing = result.commitTiming().orElseThrow();
+        System.out.println("Commit timing: " + timing);
+        assertEquals(1, timing.worksheets().size());              // the read-only worksheet commits nothing
+        CommitTiming.Worksheet written = timing.worksheets().get(0);
+        assertEquals(TestData.EMPLOYEES, written.worksheet());
+        assertEquals(2, written.inserted());
+        assertEquals(1, written.updated());
+        assertEquals(1, written.deleted());
+        assertTrue(timing.totalTimeMillis() <= result.executionTimeMillis());
+        assertEquals(EMPLOYEE_COUNT + 1, employeeCount());
+        assertEquals("Pune", employee("E001").getString("City"));
     }
 
     @Test

@@ -49,23 +49,67 @@ class GoogleSheetsProvider {
 
     }
 
+    //
+    // Every sheet read of the commit happens before its first write
+    // (see WorksheetCommitter.prepare). Returns the commit timing for
+    // the response; the flush is timed by SheetEngine. Writes are
+    // buffered by Apps Script, so a worksheet's time is mostly how
+    // long the calls took to queue: the spreadsheet applies them
+    // during the flush.
+    //
     commitAll() {
 
         const references =
             this.resources.data.getAll();
 
-        for (const reference of references) {
+        const plans = [];
 
-            if (!reference.isLoaded()) {
-                continue;
+        const prepared = Stopwatch.measure(() => {
+
+            for (const reference of references) {
+
+                if (!reference.isLoaded()) {
+                    continue;
+                }
+
+                const plan =
+                    this.committer.prepare(
+                        reference.data,
+                        this.resources
+                    );
+
+                if (plan) {
+                    plans.push(plan);
+                }
+
             }
 
-            this.committer.commit(
-                reference.data,
-                this.resources
+        });
+
+        const timing = {
+            prepareTime: prepared.elapsed,
+            writeTime: 0,
+            flushTime: 0,
+            worksheets: []
+        };
+
+        for (const plan of plans) {
+
+            const run = Stopwatch.measure(() =>
+                this.committer.write(plan)
             );
 
+            const worksheet = run.result;
+
+            worksheet.time = run.elapsed;
+
+            timing.writeTime += run.elapsed;
+
+            timing.worksheets.push(worksheet);
+
         }
+
+        return timing;
 
     }
 

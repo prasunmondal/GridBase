@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-11-08
+last_verified: 2026-11-17
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/internal/
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/spec/
@@ -34,6 +34,9 @@ back. It is the most compatibility-sensitive area, because consumers run engines
   It is absent on engines older than per-operation timing, which gives `UNKNOWN_TIME` (-1). The top-level
   `executionTime` is `ExecutionResponse` / `BatchResult.executionTimeMillis()`. A slice keeps each
   result's own time, but the top-level time is that of the whole combined request.
+- The top-level `commit` object becomes `CommitTiming` (`ExecutionResponse.commitTiming()`,
+  `BatchResult.commitTiming()`); absent on older engines → `null` / `Optional.empty()`. A slice keeps
+  the whole request's `commit`, like `executionTime`.
 
 ## Value conversion (`internal.JsCompat`), easy to break (ADR-003)
 The engine compares filter values in JavaScript:

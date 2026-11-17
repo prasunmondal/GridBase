@@ -10,6 +10,7 @@ import io.github.prasunmondal.gridbase.exception.TransportException;
 import io.github.prasunmondal.gridbase.result.AddColumnsResult;
 import io.github.prasunmondal.gridbase.result.ClearResult;
 import io.github.prasunmondal.gridbase.result.ColumnsResult;
+import io.github.prasunmondal.gridbase.result.CommitTiming;
 import io.github.prasunmondal.gridbase.result.ExecutionResponse;
 import io.github.prasunmondal.gridbase.result.LastUpdatedResult;
 import io.github.prasunmondal.gridbase.result.OperationResult;
@@ -73,7 +74,23 @@ public final class ResponseParser {
 
         JsonNode debug = root.get("debug");
         return new ExecutionResponse(root.path("requestId").asText(null),
-                root.path("executionTime").asLong(0), results, debug);
+                root.path("executionTime").asLong(0), results, debug, commitTiming(root.get("commit")));
+    }
+
+    /** {@code null} when the engine predates commit timing. */
+    private static CommitTiming commitTiming(JsonNode commit) {
+        if (commit == null || !commit.isObject()) {
+            return null;
+        }
+        List<CommitTiming.Worksheet> worksheets = new ArrayList<>();
+        for (JsonNode w : commit.path("worksheets")) {
+            worksheets.add(new CommitTiming.Worksheet(w.path("spreadsheetId").asText(null),
+                    w.path("worksheet").asText(null), w.path("cleared").asBoolean(false),
+                    w.path("inserted").asInt(0), w.path("updated").asInt(0), w.path("deleted").asInt(0),
+                    w.path("time").asLong(0)));
+        }
+        return new CommitTiming(commit.path("prepareTime").asLong(0), commit.path("writeTime").asLong(0),
+                commit.path("flushTime").asLong(0), worksheets);
     }
 
     /**

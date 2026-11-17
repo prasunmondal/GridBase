@@ -13,11 +13,20 @@ import java.util.List;
  *                            or 0); the lock wait is not included
  * @param results one result per operation, in the order the operations were sent
  * @param debug   the engine's debug entries (useful while developing; may be {@code null})
+ * @param commitTiming how the commit and flush time split up, per worksheet; {@code null} when the
+ *                     engine predates commit timing
  */
 public record ExecutionResponse(String requestId, long executionTimeMillis,
-                                List<OperationResult> results, JsonNode debug) {
+                                List<OperationResult> results, JsonNode debug,
+                                CommitTiming commitTiming) {
 
     public ExecutionResponse {
         results = Compat.copyOf(results);
+    }
+
+    /** A response without commit timing. */
+    public ExecutionResponse(String requestId, long executionTimeMillis,
+                             List<OperationResult> results, JsonNode debug) {
+        this(requestId, executionTimeMillis, results, debug, null);
     }
 }

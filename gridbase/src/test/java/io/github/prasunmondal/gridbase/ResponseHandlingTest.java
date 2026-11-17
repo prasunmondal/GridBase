@@ -9,6 +9,7 @@ import io.github.prasunmondal.gridbase.internal.ResponseParser;
 import io.github.prasunmondal.gridbase.result.AddColumnsResult;
 import io.github.prasunmondal.gridbase.result.ClearResult;
 import io.github.prasunmondal.gridbase.result.ColumnsResult;
+import io.github.prasunmondal.gridbase.result.CommitTiming;
 import io.github.prasunmondal.gridbase.result.ExecutionResponse;
 import io.github.prasunmondal.gridbase.result.LastUpdatedResult;
 import io.github.prasunmondal.gridbase.result.OperationResult;
@@ -277,6 +278,26 @@ class ResponseHandlingTest {
 
         String noTime = "{\"success\":true,\"results\":[{\"operationId\":\"op-1\",\"spreadsheetId\":\"S\"}]}";
         assertThrows(IllegalStateException.class, () -> PARSER.parse(noTime, List.of(t.lastUpdated().toOperation())));
+    }
+
+    @Test
+    void commitTimingParsesAndIsNullForOldEngines() {
+        GridBase db = client(FakeTransport.replying());
+        List<Operation> ops = List.of(db.worksheet("T").insert(Map.of("a", 1)).toOperation());
+        String result = "\"results\":[{\"operationId\":\"op-1\",\"rowCount\":1,\"rows\":[]}]";
+
+        CommitTiming timing = PARSER.parse("{\"success\":true,\"executionTime\":90," + result
+                + ",\"commit\":{\"prepareTime\":5,\"writeTime\":7,\"flushTime\":60,\"worksheets\":["
+                + "{\"spreadsheetId\":\"S\",\"worksheet\":\"T\",\"cleared\":false,\"inserted\":3,"
+                + "\"updated\":1,\"deleted\":2,\"time\":7}]}}", ops).commitTiming();
+
+        assertEquals(5, timing.prepareTimeMillis());
+        assertEquals(7, timing.writeTimeMillis());
+        assertEquals(60, timing.flushTimeMillis());
+        assertEquals(72, timing.totalTimeMillis());
+        assertEquals(List.of(new CommitTiming.Worksheet("S", "T", false, 3, 1, 2, 7)), timing.worksheets());
+
+        assertNull(PARSER.parse("{\"success\":true," + result + "}", ops).commitTiming());
     }
 
     @Test

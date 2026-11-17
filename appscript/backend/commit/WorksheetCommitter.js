@@ -1,6 +1,16 @@
 class WorksheetCommitter {
 
-    commit(worksheetData, resources) {
+    //
+    // A commit has two phases. prepare() does every sheet read the
+    // commit needs (last row, last column, grid size); write() only
+    // writes. GoogleSheetsProvider prepares every worksheet of the
+    // request before it writes any: a read after a buffered write makes
+    // Apps Script send that write and wait for the spreadsheet to
+    // apply it (and recalculate), one worksheet at a time.
+    //
+    // Returns null when the worksheet has nothing to commit.
+    //
+    prepare(worksheetData, resources) {
 
         const changeSet =
             worksheetData.getChangeSet();
@@ -10,7 +20,7 @@ class WorksheetCommitter {
             changeSet.updated.length === 0 &&
             changeSet.deleted.length === 0) {
 
-            return;
+            return null;
 
         }
 
@@ -21,78 +31,124 @@ class WorksheetCommitter {
             );
 
         //
-        // First, so the rows inserted after the clear are appended
-        // below the header.
-        //
-        if (worksheetData.cleared) {
-
-            this.commitCleared(worksheet);
-
-            worksheetData.cleared = false;
-
-        }
-
-        this.commitCreated(
-            worksheet,
-            worksheetData,
-            changeSet.created
-        );
-
-        this.commitUpdated(
-            worksheet,
-            changeSet.updated
-        );
-
-        this.commitDeleted(
-            worksheet,
-            changeSet.deleted
-        );
-
-        changeSet.clear();
-
-    }
-
-    //
-    // Clears the contents of every row below the header.
-    // The rows themselves (and their formatting) stay.
-    //
-    commitCleared(worksheet) {
-
-        const lastRow =
-            worksheet.getLastRow();
-
-        const lastColumn =
-            worksheet.getLastColumn();
-
-        if (lastRow <= 1 ||
-            lastColumn === 0) {
-
-            return;
-
-        }
-
-        worksheet
-            .getRange(
-                2,
-                1,
-                lastRow - 1,
-                lastColumn
-            )
-            .clearContent();
-
-    }
-
-    commitCreated(worksheet,
-                  worksheetData,
-                  rows) {
-
-        //
         // A row this request added and then deleted is never written.
         //
         const created =
-            rows.filter(function (row) {
+            changeSet.created.filter(function (row) {
                 return row.state !== RowState.DELETED;
             });
+
+        const plan = {
+            data: worksheetData,
+            worksheet: worksheet,
+            changeSet: changeSet,
+            created: created,
+            cleared: worksheetData.cleared,
+            clearRows: 0,
+            clearColumns: 0,
+            startRow: 0,
+            maxRows: 0
+        };
+
+        let lastRow = -1;
+
+        if (plan.cleared) {
+
+            lastRow =
+                worksheet.getLastRow();
+
+            const lastColumn =
+                worksheet.getLastColumn();
+
+            if (lastRow > 1 &&
+                lastColumn > 0) {
+
+                plan.clearRows = lastRow - 1;
+
+                plan.clearColumns = lastColumn;
+
+            }
+
+            //
+            // After the clear only the header has content, so the
+            // inserted rows go right below it.
+            //
+            lastRow = Math.min(lastRow, 1);
+
+        }
+
+        if (created.length > 0) {
+
+            if (lastRow < 0) {
+                lastRow = worksheet.getLastRow();
+            }
+
+            plan.startRow = lastRow + 1;
+
+            plan.maxRows = worksheet.getMaxRows();
+
+        }
+
+        return plan;
+
+    }
+
+    //
+    // Writes a prepared plan without reading the sheet. Returns what
+    // was written, for the commit timing in the response.
+    //
+    write(plan) {
+
+        //
+        // First, so the rows inserted after the clear are appended
+        // below the header. The rows themselves (and their
+        // formatting) stay.
+        //
+        if (plan.clearRows > 0) {
+
+            plan.worksheet
+                .getRange(
+                    2,
+                    1,
+                    plan.clearRows,
+                    plan.clearColumns
+                )
+                .clearContent();
+
+        }
+
+        plan.data.cleared = false;
+
+        this.commitCreated(plan);
+
+        const updated =
+            this.commitUpdated(
+                plan.worksheet,
+                plan.changeSet.updated
+            );
+
+        const deleted =
+            this.commitDeleted(
+                plan.worksheet,
+                plan.changeSet.deleted
+            );
+
+        plan.changeSet.clear();
+
+        return {
+            spreadsheetId: plan.data.spreadsheetId,
+            worksheet: plan.data.worksheet,
+            cleared: plan.cleared,
+            inserted: plan.created.length,
+            updated: updated,
+            deleted: deleted
+        };
+
+    }
+
+    commitCreated(plan) {
+
+        const created = plan.created;
 
         if (created.length === 0) {
             return;
@@ -104,46 +160,34 @@ class WorksheetCommitter {
             values.push(row.values);
         }
 
-        const startRow =
-            worksheet.getLastRow() + 1;
+        const startRow = plan.startRow;
 
-        this.ensureRows(
-            worksheet,
-            startRow + values.length - 1
-        );
+        const lastRow = startRow + values.length - 1;
 
-        worksheet
+        //
+        // A range below the last row of the grid is an error,
+        // so a full sheet gets the missing rows first.
+        //
+        if (lastRow > plan.maxRows) {
+
+            plan.worksheet.insertRowsAfter(
+                plan.maxRows,
+                lastRow - plan.maxRows
+            );
+
+        }
+
+        plan.worksheet
             .getRange(
                 startRow,
                 1,
                 values.length,
-                worksheetData.getColumnCount()
+                plan.data.getColumnCount()
             )
             .setValues(values);
 
         for (let i = 0; i < created.length; i++) {
             created[i].sheetRow = startRow + i;
-        }
-
-    }
-
-    //
-    // A range below the last row of the grid is an error,
-    // so a full sheet gets the missing rows first.
-    //
-    ensureRows(worksheet,
-               lastRow) {
-
-        const maxRows =
-            worksheet.getMaxRows();
-
-        if (lastRow > maxRows) {
-
-            worksheet.insertRowsAfter(
-                maxRows,
-                lastRow - maxRows
-            );
-
         }
 
     }
@@ -176,7 +220,7 @@ class WorksheetCommitter {
         }
 
         if (changed.length === 0) {
-            return;
+            return 0;
         }
 
         changed.sort(function (a, b) {
@@ -228,13 +272,15 @@ class WorksheetCommitter {
 
         }
 
+        return changed.length;
+
     }
 
     commitDeleted(worksheet,
                   rows) {
 
         if (rows.length === 0) {
-            return;
+            return 0;
         }
 
         //
@@ -284,6 +330,8 @@ class WorksheetCommitter {
             i++;
 
         }
+
+        return sheetRows.length;
 
     }
 
