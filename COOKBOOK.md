@@ -43,8 +43,8 @@ import static io.github.prasunmondal.gridbase.query.Filters.*;
 
 ```kotlin
 // Gradle (Maven Central)
-implementation("io.github.prasunmondal:gridbase:0.2.0")
-implementation("io.github.prasunmondal:gridbase-android:0.2.0")   // Android apps only
+implementation("io.github.prasunmondal:gridbase:2.0.5")
+implementation("io.github.prasunmondal:gridbase-android:2.0.5")   // Android apps only
 
 // Gradle (JitPack)
 implementation("com.github.prasunmondal.GridBase:gridbase:<tag>")
@@ -56,7 +56,7 @@ implementation("com.github.prasunmondal.GridBase:gridbase-android:<tag>")
 <dependency>
   <groupId>io.github.prasunmondal</groupId>
   <artifactId>gridbase</artifactId>
-  <version>0.2.0</version>
+  <version>2.0.5</version>
 </dependency>
 ```
 
@@ -581,12 +581,60 @@ result.executionTimeMillis();        // e.g. 1450: both, plus writing and flushi
 ```
 
 Each operation's time includes loading its worksheet when it is the first operation to touch it, so
-a second query on the same sheet is usually much faster. The time to write the changes is reported
-only for the whole request. Neither time includes the network or the wait for the engine's write lock.
+a second query on the same sheet is usually much faster. The time to write the changes is not part of
+any operation; [Find out why a commit is slow](#find-out-why-a-commit-is-slow) splits it up. Neither
+time includes the network or the wait for the engine's write lock.
 For a single call, `orders.select().execute().executionTimeMillis()` works the same way.
 
 This needs a **redeployed engine**. Against an older one, every operation returns
 `OperationResult.UNKNOWN_TIME` (-1).
+
+### Find out why a commit is slow
+
+When `result.executionTimeMillis()` is much larger than the operations added together, the time went
+into writing the changes. `commitTiming()` shows where:
+
+```java
+BatchResult result = batch.execute();
+
+result.commitTiming().ifPresent(c -> {
+    log.info("commit: prepare {} ms, write {} ms, flush {} ms (total {} ms)",
+            c.prepareTimeMillis(), c.writeTimeMillis(), c.flushTimeMillis(), c.totalTimeMillis());
+    for (CommitTiming.Worksheet w : c.worksheets()) {
+        log.info("  {}: +{} ~{} -{} rows{} in {} ms", w.worksheet(),
+                w.inserted(), w.updated(), w.deleted(), w.cleared() ? " (replaced)" : "", w.timeMillis());
+    }
+});
+```
+
+```text
+commit: prepare 86 ms, write 156 ms, flush 148 ms (total 390 ms)
+  Orders: +2 ~1 -1 rows in 156 ms
+```
+
+| Part | What it covers |
+|---|---|
+| `prepareTimeMillis()` | Reading what the write needs (last row, sheet size), for every worksheet, before the first write |
+| `writeTimeMillis()` | Sending the inserts, updates and deletes; the sum of each worksheet's `timeMillis()` |
+| `flushTimeMillis()` | Waiting until Google Sheets has applied the writes, before the next writer may start |
+
+Only worksheets with changes are listed; a worksheet the batch only read commits nothing. Apps Script
+buffers most writes, so Google Sheets does the real work, including recalculating every formula
+that reads the changed rows, during the flush. A small sheet without formulas commits in well
+under a second. If yours takes many seconds, mostly in `flushTimeMillis()`, look at the spreadsheet,
+not the code:
+
+- formulas over whole columns (`SUMIFS(A:A, ...)`, `QUERY(Data!A:Z, ...)`, `ARRAYFORMULA`) that read
+  the written sheet; limit them to a fixed range or move reports to another spreadsheet
+- volatile functions (`NOW()`, `TODAY()`, `RAND()`) and `IMPORTRANGE` chains
+- conditional formatting or data validation on entire columns
+- very large sheets with many empty rows or columns
+
+A quick test: copy the spreadsheet, delete the report and formula tabs, and point a test run at the
+copy. A slow commit also makes other writers wait for the engine's lock, so the fix shortens their
+round trips too.
+
+`commitTiming()` is empty against an engine deployed before commit timing. Redeploy to get it.
 
 ---
 
@@ -878,6 +926,14 @@ A `TransportException` mentioning a page title usually means one of these: wrong
 URL, *Who has access* isn't *Anyone* and no `accessToken` was given, or the script owner must
 re-authorize the script. Open the `/exec` URL in a browser to see the page.
 
+A reply of just *"SheetEngine Running"* is different: that is the engine's answer to a GET, so the
+request lost its POST body on a redirect and the engine never ran it. The SDK already handles the two
+redirects Apps Script uses. It follows the `302` to `script.googleusercontent.com` with a GET, and it
+sends the same POST again when Google redirects it to another `/exec` address such as
+`/macros/u/0/s/<id>/exec`. `Authorization` is never sent to a different host. If the reply still
+arrives, the SDK reports it as a retryable `TransportException`, so reads are retried and writes are
+retried only with `retryingWrites(true)`.
+
 ---
 
 ## 13. Logging, metrics and hooks
@@ -926,6 +982,18 @@ The round trip minus `result.executionTimeMillis()` is roughly what Apps Script 
 wait and the network cost you. If that gap dominates, combining calls with a request queue helps more
 than tuning queries.
 
+To track the write part too, record `result.commitTiming()` (see
+[Find out why a commit is slow](#find-out-why-a-commit-is-slow)):
+
+```java
+result.commitTiming().ifPresent(c -> {
+    metrics.record("gridbase.commit.flush", Duration.ofMillis(c.flushTimeMillis()));
+    metrics.record("gridbase.commit.total", Duration.ofMillis(c.totalTimeMillis()));
+});
+```
+
+A rising flush time with the same number of rows usually means the spreadsheet's formulas grew.
+
 ### Count calls (e.g. to watch quota)
 
 ```java
@@ -954,10 +1022,10 @@ l.addHandler(h);
 
 ```kotlin
 dependencies {
-    implementation("io.github.prasunmondal:gridbase:0.2.0") {
+    implementation("io.github.prasunmondal:gridbase:2.0.5") {
         exclude(group = "org.xerial", module = "sqlite-jdbc")   // not needed on Android
     }
-    implementation("io.github.prasunmondal:gridbase-android:0.2.0")
+    implementation("io.github.prasunmondal:gridbase-android:2.0.5")
 }
 ```
 
@@ -1083,3 +1151,6 @@ Point your client at `http://127.0.0.1:8765/macros/s/LOCAL/exec`.
 | `findById(...).onFailure` doesn't compile | Repository shortcuts have no per-call hook | `requests().findById(...).onFailure(...).execute()` |
 | `NetworkOnMainThreadException` | Android main thread | Run on `Dispatchers.IO` / an executor |
 | Changes to the engine have no effect | Deployment not updated | Deploy a new version of the web app |
+| Writes take 20+ s, mostly `flushTimeMillis()` | Formulas recalculating on every write | See [Find out why a commit is slow](#find-out-why-a-commit-is-slow) |
+| `commitTiming()` is empty | Engine deployed before commit timing | Redeploy the engine |
+| Reply is just *"SheetEngine Running"* | POST turned into a GET on a redirect | See ["I got an HTML page"](#i-got-an-html-page) |
