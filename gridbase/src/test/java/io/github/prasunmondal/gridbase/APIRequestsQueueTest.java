@@ -245,6 +245,99 @@ class APIRequestsQueueTest {
     }
 
     @Test
+    void clientsOnTheSameEngineShareOneCallAcrossSpreadsheets() {
+        FakeTransport t = new FakeTransport(APIRequestsQueueTest::echo);
+        GridBase live = GridBase.builder().transport(t).defaultSpreadsheetId("LIVE").retryPolicy(RetryPolicy.none()).build();
+        GridBase archive = GridBase.builder().transport(t).defaultSpreadsheetId("ARCHIVE")
+                .retryPolicy(RetryPolicy.none()).build();
+
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        Queued<RowsResult> a = live.worksheet("A").select().queue(reqQ);
+        Queued<RowsResult> b = archive.worksheet("B").select().queue(reqQ);
+        Queued<RowsResult> c = live.worksheet("C").select().queue(reqQ);
+        reqQ.execute();
+
+        assertEquals(1, t.requests.size());
+        assertEquals(List.of("A", "B", "C"), worksheets(t.requests.get(0)));
+        List<String> spreadsheets = new ArrayList<>();
+        t.requests.get(0).path("operations").forEach(op -> spreadsheets.add(op.path("spreadsheetId").asText()));
+        assertEquals(List.of("LIVE", "ARCHIVE", "LIVE"), spreadsheets);
+        assertEquals("A", sheet(a.get().rows()));
+        assertEquals("B", sheet(b.get().rows()));
+        assertEquals("C", sheet(c.get().rows()));
+    }
+
+    @Test
+    void clientsWithDifferentSettingsKeepSeparateCallsOnTheSameEngine() {
+        FakeTransport t = new FakeTransport(APIRequestsQueueTest::echo);
+        GridBase one = client(t);
+        GridBase retrying = GridBase.builder().transport(t).defaultSpreadsheetId("S").retryPolicy(RetryPolicy.defaults()).build();
+        GridBase otherZone = GridBase.builder().transport(t).defaultSpreadsheetId("S").retryPolicy(RetryPolicy.none())
+                .timeZone(java.time.ZoneId.of("Asia/Kolkata")).build();
+        GridBase hooked = GridBase.builder().transport(t).defaultSpreadsheetId("S").retryPolicy(RetryPolicy.none())
+                .onFailure(f -> { }).build();
+
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        one.worksheet("A").select().queue(reqQ);
+        retrying.worksheet("B").select().queue(reqQ);
+        otherZone.worksheet("C").select().queue(reqQ);
+        hooked.worksheet("D").select().queue(reqQ);
+        reqQ.execute();
+
+        assertEquals(4, t.requests.size());
+    }
+
+    @Test
+    void equalRetryPoliciesAreInterchangeable() {
+        FakeTransport t = new FakeTransport(APIRequestsQueueTest::echo);
+        GridBase one = GridBase.builder().transport(t).defaultSpreadsheetId("S").retryPolicy(RetryPolicy.defaults()).build();
+        GridBase two = GridBase.builder().transport(t).defaultSpreadsheetId("T").retryPolicy(RetryPolicy.defaults()).build();
+
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        one.worksheet("A").select().queue(reqQ);
+        two.worksheet("B").select().queue(reqQ);
+        reqQ.execute();
+
+        assertEquals(1, t.requests.size());
+    }
+
+    @Test
+    void aSharedCallIsSentByTheClientWithTheLongestTimeout() {
+        GridBase quick = GridBase.builder().endpoint("http://127.0.0.1:9/exec").defaultSpreadsheetId("LIVE")
+                .requestTimeout(java.time.Duration.ofSeconds(5)).retryPolicy(RetryPolicy.none()).build();
+        GridBase slow = GridBase.builder().endpoint("http://127.0.0.1:9/exec").defaultSpreadsheetId("ARCHIVE")
+                .requestTimeout(java.time.Duration.ofMinutes(4)).retryPolicy(RetryPolicy.none()).build();
+        GridBase otherEngine = GridBase.builder().endpoint("http://127.0.0.1:9/other")
+                .retryPolicy(RetryPolicy.none()).build();
+
+        assertTrue(quick.canShareCallWith(slow));
+        assertFalse(quick.canShareCallWith(otherEngine));
+        assertSame(slow, GridBase.senderOf(List.of(quick, slow)));
+        assertSame(slow, GridBase.senderOf(List.of(slow, quick)));
+    }
+
+    @Test
+    void eachClientCachesItsOwnSliceOfASharedCall() {
+        FakeTransport t = new FakeTransport(APIRequestsQueueTest::echo);
+        ResponseCache liveCache = new io.github.prasunmondal.gridbase.cache.InMemoryResponseCache();
+        ResponseCache archiveCache = new io.github.prasunmondal.gridbase.cache.InMemoryResponseCache();
+        GridBase live = GridBase.builder().transport(t).defaultSpreadsheetId("LIVE").retryPolicy(RetryPolicy.none())
+                .cache(liveCache, CacheStrategy.CACHE_FIRST, CacheExpiry.ttlMinutes(10)).build();
+        GridBase archive = GridBase.builder().transport(t).defaultSpreadsheetId("ARCHIVE").retryPolicy(RetryPolicy.none())
+                .cache(archiveCache, CacheStrategy.CACHE_FIRST, CacheExpiry.ttlMinutes(10)).build();
+
+        APIRequestsQueue reqQ = new APIRequestsQueue();
+        live.worksheet("A").select().queue(reqQ);
+        archive.worksheet("B").select().queue(reqQ);
+        reqQ.execute();
+        assertEquals(1, t.requests.size());
+
+        assertEquals("A", sheet(live.worksheet("A").select().fetch()));
+        assertEquals("B", sheet(archive.worksheet("B").select().fetch()));
+        assertEquals(1, t.requests.size());                // both answered from their own cache
+    }
+
+    @Test
     void multiOperationRequestsStayTogetherAndEmptyOnesNeedNoCall() {
         FakeTransport t = new FakeTransport(APIRequestsQueueTest::echo);
         GridBase db = client(t);

@@ -798,9 +798,13 @@ reqQ.execute();
 
 - **Cache first.** With a cache configured, fresh cache hits are answered locally and not sent.
   Queued reads are cached individually; queued writes invalidate their worksheets as usual.
-- **One call per client.** Everything else for the same client goes out in one HTTP call, in the
-  order it was queued. Requests on different clients (different script URL or settings) get one
-  call each. Entities whose `SheetProperties` were derived by `tabName` only share a client.
+- **One call per engine.** Everything else for the same engine goes out in one HTTP call, in the
+  order it was queued. Clients share that call when they have the same script URL (or the same
+  custom transport), access token, retry policy, time zone, mapper and network/failure actions,
+  even if they point at different spreadsheets or have different timeouts: the call is then sent
+  with the longest timeout, and each client still keeps its own cache. A typical case is
+  `liveDB.toBuilder().dbSheetUrl(archiveId).requestTimeout(...)`. Clients that differ in any of
+  those settings get one call each.
 - **Each request succeeds or fails on its own.** If the engine rejects the combined call, it has
   written nothing; each request is then re-sent alone so only the faulty one fails. A network
   failure fails every request in that call. A request made of several row operations (`upsertAll`) stays

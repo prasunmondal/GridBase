@@ -25,9 +25,11 @@ import java.util.Map;
  * }</pre>
  *
  * <ul>
- *   <li>Fresh cache hits are answered without a network call; everything else for the same client
- *       goes out in one HTTP call, in the order queued. Requests on different clients (different
- *       script URL / settings) go out as one call per client.</li>
+ *   <li>Fresh cache hits are answered without a network call; everything else for the same engine
+ *       goes out in one HTTP call, in the order queued. Clients with the same script URL (or the same
+ *       custom transport), token, retry policy, time zone, mapper and network/failure actions share
+ *       that call even when their spreadsheets or timeouts differ; it is sent with the longest timeout.
+ *       Other clients go out as one call each.</li>
  *   <li>Each request succeeds or fails on its own: if the engine rejects the combined call, each request
  *       is re-sent alone so only the faulty one fails. A request made of several operations (e.g.
  *       {@code upsertAll}) stays all-or-nothing.</li>
@@ -88,23 +90,28 @@ public final class APIRequestsQueue {
         }
         executed = true;
 
-        Map<GridBase, List<Entry<?>>> byClient = new LinkedHashMap<>();
+        // Clients that can share a call (same engine and settings, any spreadsheet) form one group.
+        Map<GridBase, List<Entry<?>>> byEngine = new LinkedHashMap<>();
         for (Entry<?> e : entries) {
             if (e.request().isCompleted()) {
                 complete(e, null);
             } else {
-                byClient.computeIfAbsent(e.request().client(), c -> new ArrayList<>()).add(e);
+                GridBase client = e.request().client();
+                GridBase key = byEngine.keySet().stream()
+                        .filter(client::canShareCallWith).findFirst().orElse(client);
+                byEngine.computeIfAbsent(key, c -> new ArrayList<>()).add(e);
             }
         }
 
-        for (Map.Entry<GridBase, List<Entry<?>>> group : byClient.entrySet()) {
+        for (Map.Entry<GridBase, List<Entry<?>>> group : byEngine.entrySet()) {
             List<Entry<?>> list = group.getValue();
             List<GridBase.Planned> requests = list.stream()
-                    .map(e -> new GridBase.Planned(e.request().operations(), e.request().isForceRefresh()))
+                    .map(e -> new GridBase.Planned(e.request().client(), e.request().operations(),
+                            e.request().isForceRefresh()))
                     .collect(Compat.toList());
             List<Outcome<ExecutionResponse>> outcomes;
             try {
-                outcomes = group.getKey().executeTogether(requests, maxOperationsPerCall);
+                outcomes = GridBase.executeTogether(requests, maxOperationsPerCall);
             } catch (RuntimeException ex) {
                 list.forEach(e -> e.handle().fail(ex));
                 continue;

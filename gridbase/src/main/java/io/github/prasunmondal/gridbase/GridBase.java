@@ -95,8 +95,18 @@ public final class GridBase {
     private final List<Consumer<NetworkCall>> preNetworkCallActions;
     private final List<Consumer<NetworkCallResult>> postNetworkCallActions;
     private final List<Consumer<RequestFailure>> failureActions;
-    /** Details of requests that failed for good, by their exception, for per-call failure actions. */
-    private final Map<RuntimeException, Sent> failedRequests = Collections.synchronizedMap(new WeakHashMap<>());
+    /**
+     * Details of requests that failed for good, by their exception, for per-call failure actions. Shared by all
+     * clients: a call combined across clients is sent by one of them but reported by the client that queued it.
+     */
+    private static final Map<RuntimeException, Sent> failedRequests = Collections.synchronizedMap(new WeakHashMap<>());
+    /** The web app URL, or {@code null} with a custom transport. */
+    private final URI endpoint;
+    private final Duration connectTimeout;
+    private final Duration requestTimeout;
+    private final Supplier<String> accessToken;
+    /** The mapper passed to the builder (null for the default), which the serializer is built from. */
+    private final ObjectMapper baseMapper;
     private final List<NetworkLogger> cacheLoggers;
     private final ResponseCache cache;
     private final CacheStrategy cacheStrategy;
@@ -124,6 +134,11 @@ public final class GridBase {
         this.retryPolicy = b.retryPolicy;
         this.serializer = new RequestSerializer(mapper, zone);
         this.parser = new ResponseParser(mapper, zone);
+        this.baseMapper = b.objectMapper;
+        this.endpoint = b.transport != null ? null : b.endpoint;
+        this.connectTimeout = b.connectTimeout;
+        this.requestTimeout = b.requestTimeout;
+        this.accessToken = b.accessToken;
         if (b.transport != null) {
             this.transport = b.transport;
         } else {
@@ -281,8 +296,45 @@ public final class GridBase {
         }).handle((reply, failure) -> answerRead(read, reply, failure));
     }
 
-    /** A request for {@link #executeTogether}; {@code forceRefresh} as in {@link #executeRefreshing}. */
-    record Planned(List<Operation> operations, boolean forceRefresh) {
+    /**
+     * A request for {@link #executeTogether}, on {@code client}; {@code forceRefresh} as in {@link #executeRefreshing}.
+     */
+    record Planned(GridBase client, List<Operation> operations, boolean forceRefresh) {
+    }
+
+    /**
+     * Whether requests of this client and {@code other} can travel in one HTTP call: the same engine (endpoint, or
+     * the same custom transport) and the same token, retry policy, time zone, mapper and network/failure actions,
+     * so the combined call is serialized, retried and reported exactly as each client would have done it. The
+     * spreadsheet may differ: every operation names its own. Timeouts may differ: the call is sent by the client
+     * with the longest one ({@link #senderOf}).
+     */
+    boolean canShareCallWith(GridBase other) {
+        if (other == this) {
+            return true;
+        }
+        boolean sameEngine = endpoint != null ? endpoint.equals(other.endpoint)
+                : other.endpoint == null && transport == other.transport;
+        return sameEngine
+                && Objects.equals(accessToken, other.accessToken)
+                && retryPolicy.equals(other.retryPolicy)
+                && zone.equals(other.zone)
+                && baseMapper == other.baseMapper
+                && preNetworkCallActions.equals(other.preNetworkCallActions)
+                && postNetworkCallActions.equals(other.postNetworkCallActions)
+                && failureActions.equals(other.failureActions);
+    }
+
+    /** The client that sends a call combined across clients: the longest request, then connect, timeout; first on a tie. */
+    static GridBase senderOf(List<GridBase> clients) {
+        GridBase sender = clients.get(0);
+        for (GridBase c : clients) {
+            int byRequest = c.requestTimeout.compareTo(sender.requestTimeout);
+            if (byRequest > 0 || (byRequest == 0 && c.connectTimeout.compareTo(sender.connectTimeout) > 0)) {
+                sender = c;
+            }
+        }
+        return sender;
     }
 
     /** One request's outcome when several are executed together: exactly one field is non-null. */
@@ -301,8 +353,11 @@ public final class GridBase {
      * Executes several independent requests with as few HTTP calls as possible: fresh cache hits are
      * answered locally, the rest are combined (at most {@code maxOperationsPerCall} operations per
      * call, schema operations alone, order kept). Each request gets its own outcome.
+     *
+     * <p>The requests may be on different clients that {@link #canShareCallWith} each other. Each client answers
+     * its own cache hits and keeps its own cache; a call is sent by {@link #senderOf} its clients.</p>
      */
-    List<Outcome<ExecutionResponse>> executeTogether(List<Planned> planned, int maxOperationsPerCall) {
+    static List<Outcome<ExecutionResponse>> executeTogether(List<Planned> planned, int maxOperationsPerCall) {
         List<List<Operation>> requests = planned.stream().map(Planned::operations).collect(Compat.toList());
         int n = requests.size();
         List<Outcome<ExecutionResponse>> outcomes = new ArrayList<>(Collections.nCopies(n, null));
@@ -310,11 +365,12 @@ public final class GridBase {
         List<Integer> toSend = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             List<Operation> ops = requests.get(i);
-            if (cache != null && isCacheable(ops)) {
-                CachedRead read = planned.get(i).forceRefresh() ? refreshing(ops) : lookup(ops);
+            GridBase owner = planned.get(i).client();
+            if (owner.cache != null && isCacheable(ops)) {
+                CachedRead read = planned.get(i).forceRefresh() ? owner.refreshing(ops) : owner.lookup(ops);
                 reads[i] = read;
                 if (read.hit()) {
-                    outcomes.set(i, Outcome.of(() -> parser.parse(read.entry().get().reply(), ops)));
+                    outcomes.set(i, Outcome.of(() -> owner.parser.parse(read.entry().get().reply(), ops)));
                     continue;
                 }
             }
@@ -344,17 +400,19 @@ public final class GridBase {
         }
 
         for (List<Integer> call : calls) {
-            List<Outcome<Reply>> replies = sendCombined(call.stream().map(requests::get).collect(Compat.toList()));
+            GridBase sender = senderOf(call.stream().map(i -> planned.get(i).client()).collect(Compat.toList()));
+            List<Outcome<Reply>> replies = sender.sendCombined(call.stream().map(requests::get).collect(Compat.toList()));
             for (int k = 0; k < call.size(); k++) {
                 int i = call.get(k);
                 Outcome<Reply> reply = replies.get(k);
                 List<Operation> ops = requests.get(i);
-                if (cache != null && !isReadOnly(ops)) {
-                    invalidateWrites(ops);
+                GridBase owner = planned.get(i).client();
+                if (owner.cache != null && !isReadOnly(ops)) {
+                    owner.invalidateWrites(ops);
                 }
                 if (reads[i] != null) {
                     CachedRead read = reads[i];
-                    outcomes.set(i, Outcome.of(() -> finishRead(read, reply.value(), reply.failure())));
+                    outcomes.set(i, Outcome.of(() -> owner.finishRead(read, reply.value(), reply.failure())));
                 } else if (reply.failure() != null) {
                     outcomes.set(i, new Outcome<>(null, reply.failure()));
                 } else {

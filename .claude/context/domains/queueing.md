@@ -1,6 +1,6 @@
 ---
 status: VERIFIED
-last_verified: 2026-11-02
+last_verified: 2026-11-27
 sources:
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/RequestQueue.java
   - gridbase/src/main/java/io/github/prasunmondal/gridbase/APIRequestsQueue.java
@@ -17,9 +17,15 @@ request queue". Decision: ADR-006.
 ## Explicit queue: `APIRequestsQueue`, `SheetRequest<T>`, `Queued`
 - A `SheetRequest<T>` holds the operations, the client and an `ExecutionResponse → T` mapper. It is
   run with `execute()` or `queue(q)`.
-- `APIRequestsQueue.execute()` groups requests by client and calls `GridBase.executeTogether`,
-  which does a cache lookup per request and then calls `sendCombined` once per call. Calls are split
-  around schema operations and at `maxOperationsPerCall`.
+- `APIRequestsQueue.execute()` groups requests by engine: clients that `GridBase.canShareCallWith`
+  each other (same endpoint or custom transport instance, token, `RetryPolicy` (value equality), zone,
+  base mapper, pre/post/failure action lists) form one group, whatever their spreadsheet or timeouts.
+  The static `GridBase.executeTogether` does each request's cache lookup, store and invalidation on its
+  **own** client, and calls `sendCombined` on `senderOf` the call's clients (longest request timeout,
+  then connect timeout). Calls are split around schema operations and at `maxOperationsPerCall`.
+- `failedRequests` (request details for per-call failure actions) is static, because the sender and
+  the reporting client of a shared call can differ.
+- The automatic `RequestQueue` is still per client.
 - Failures belong to each `Queued` handle. `execute()` throws `QueueExecutionException` at the end if
   any request failed.
 

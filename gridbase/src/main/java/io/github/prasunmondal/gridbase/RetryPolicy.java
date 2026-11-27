@@ -75,4 +75,21 @@ public final class RetryPolicy {
         double millis = initialDelay.toMillis() * Math.pow(multiplier, attempt - 1);
         return Duration.ofMillis((long) Math.min(millis, maxDelay.toMillis()));
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof RetryPolicy p)) {
+            return false;
+        }
+        return maxAttempts == p.maxAttempts && Double.compare(multiplier, p.multiplier) == 0
+                && retryWrites == p.retryWrites && initialDelay.equals(p.initialDelay) && maxDelay.equals(p.maxDelay);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(maxAttempts, initialDelay, multiplier, maxDelay, retryWrites);
+    }
 }
